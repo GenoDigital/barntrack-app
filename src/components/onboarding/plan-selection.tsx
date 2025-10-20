@@ -34,14 +34,10 @@ export function PlanSelection({ pendingPlan, onComplete }: PlanSelectionProps) {
     try {
       // Step 2: Now that user is authenticated, create Stripe customer
       console.log('Creating Stripe customer for:', pendingPlan.userEmail)
-      const { data: customerData, error: customerError } = await supabase.functions.invoke('create-customer', {
-        body: { 
-          email: pendingPlan.userEmail,
-          name: pendingPlan.userName,
-          metadata: {
-            signup_source: 'direct'
-          }
-        }
+      const { data: customerData, error: customerError } = await supabase.rpc('create_stripe_customer_via_wrapper', {
+        customer_email: pendingPlan.userEmail,
+        customer_name: pendingPlan.userName,
+        customer_description: 'Direct signup'
       })
 
       if (customerError) {
@@ -65,13 +61,10 @@ export function PlanSelection({ pendingPlan, onComplete }: PlanSelectionProps) {
 
         console.log('Using Professional price ID from vault:', priceIdData)
 
-        const { data: subscriptionData, error: subscriptionError } = await supabase.functions.invoke('create-subscription', {
-          body: {
-            priceId: priceIdData,
-            customerId: customerData.customer_id,
-            couponId: 'TRIAL10', // 10-Day Free Trial promotion code
-            trialDays: 10
-          }
+        const { data: subscriptionData, error: subscriptionError } = await supabase.rpc('create_subscription_via_wrapper', {
+          price_id: priceIdData,
+          trial_days: 10,
+          coupon_id: null // No coupon for trial mode
         })
 
         if (subscriptionError) {
@@ -94,12 +87,10 @@ export function PlanSelection({ pendingPlan, onComplete }: PlanSelectionProps) {
         console.log('Using price ID from vault:', priceIdData)
 
         // Create the subscription
-        const { data: subscriptionData, error: subscriptionError } = await supabase.functions.invoke('create-subscription', {
-          body: {
-            priceId: priceIdData,
-            customerId: customerData.customer_id,
-            couponId: pendingPlan.voucherCode || undefined // Apply voucher if provided
-          }
+        const { data: subscriptionData, error: subscriptionError } = await supabase.rpc('create_subscription_via_wrapper', {
+          price_id: priceIdData,
+          trial_days: 0,
+          coupon_id: pendingPlan.voucherCode || null // Apply voucher if provided
         })
 
         if (subscriptionError) {

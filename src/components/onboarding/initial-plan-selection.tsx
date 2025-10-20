@@ -79,10 +79,10 @@ export function InitialPlanSelection({ onComplete }: InitialPlanSelectionProps) 
 
         // Create default trial subscription (10 days free Professional plan) using wrapper
         console.log('Creating default trial subscription via wrapper...')
-        const { data: subscriptionData, error: subscriptionError } = await supabase.rpc('create_subscription_pure_wrapper', {
-          customer_id: customerData.customer_id,
+        const { data: subscriptionData, error: subscriptionError } = await supabase.rpc('create_subscription_via_wrapper', {
           price_id: priceIdData,
-          trial_days: 10
+          trial_days: 10,
+          coupon_id: null
         })
 
         if (subscriptionError) {
