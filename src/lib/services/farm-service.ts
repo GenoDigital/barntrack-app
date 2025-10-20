@@ -96,6 +96,14 @@ export async function createFarm(params: CreateFarmParams): Promise<CreateFarmRe
       }
     }
 
+    // Debug: Check what the database sees
+    console.log('About to create farm with owner_id:', user.id)
+    console.log('User email:', user.email)
+
+    // Test if auth context is working
+    const { data: authTest, error: authTestError } = await supabase.rpc('auth.uid' as any)
+    console.log('Database auth.uid() returns:', authTest, 'Error:', authTestError)
+
     // Create the farm
     const { data: farm, error: farmError } = await supabase
       .from('farms')
@@ -109,6 +117,7 @@ export async function createFarm(params: CreateFarmParams): Promise<CreateFarmRe
 
     if (farmError) {
       console.error('Error creating farm:', farmError)
+      console.error('User ID attempted:', user.id)
       return {
         success: false,
         error: 'Fehler beim Erstellen des Stalls'
