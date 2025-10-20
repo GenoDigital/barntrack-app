@@ -50,3 +50,10 @@ Thumbs.db
 
 # Claude Code
 .claude/
+
+# Supabase Edge Functions (handled in separate private repo)
+/supabase/
+
+# Cloudflare
+.wrangler/
+wrangler.toml
