@@ -1,0 +1,11 @@
+# Allow all crawlers
+User-agent: *
+Allow: /
+
+# Disallow admin and private pages
+Disallow: /dashboard/
+Disallow: /onboarding/
+Disallow: /checkout/
+
+# Sitemap location
+Sitemap: https://barntrack.app/sitemap.xml
