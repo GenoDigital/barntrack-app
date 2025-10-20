@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import * as React from 'react'
-import { createClient } from '@/lib/supabase/client'
 import {
   Dialog,
   DialogContent,
@@ -17,6 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useSubscription } from '@/lib/hooks/use-subscription'
+import { createFarm } from '@/lib/services/farm-service'
 import { Crown } from 'lucide-react'
 import Link from 'next/link'
 
@@ -32,8 +32,7 @@ export function CreateFarmDialog({ open, onOpenChange, onSuccess }: CreateFarmDi
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [canCreate, setCanCreate] = useState<boolean | null>(null)
-  const { subscription, getPlanLimits, canCreateFarm } = useSubscription()
-  const supabase = createClient()
+  const { getPlanLimits, canCreateFarm } = useSubscription()
 
   // Check if user can create farm when dialog opens
   React.useEffect(() => {
@@ -47,45 +46,20 @@ export function CreateFarmDialog({ open, onOpenChange, onSuccess }: CreateFarmDi
     setLoading(true)
     setError(null)
 
-    // Check if user can create farm
-    const canCreate = await canCreateFarm()
-    if (!canCreate) {
-      setError('Sie haben das Maximum an Ställen für Ihren Plan erreicht')
-      setLoading(false)
-      return
-    }
+    // Use the shared farm service for creation
+    const result = await createFarm({
+      name,
+      description
+    })
 
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      setError('Nicht angemeldet')
-      setLoading(false)
-      return
-    }
+    setLoading(false)
 
-    try {
-      // Create the farm (farm_members record is created automatically by database trigger)
-      const { data: farm, error: farmError } = await supabase
-        .from('farms')
-        .insert({
-          name,
-          description,
-          owner_id: user.id,
-        })
-        .select()
-        .single()
-
-      if (farmError) {
-        setError(farmError.message)
-        setLoading(false)
-        return
-      }
-
+    if (result.success) {
       setName('')
       setDescription('')
       onSuccess()
-    } catch (err) {
-      setError('Fehler beim Erstellen des Stalls')
-      setLoading(false)
+    } else {
+      setError(result.error || 'Fehler beim Erstellen des Stalls')
     }
   }
 
