@@ -48,12 +48,11 @@ export function InitialPlanSelection({ onComplete }: InitialPlanSelectionProps) 
         return
       }
 
-      // Create Stripe customer automatically
-      const { data: customerData, error: customerError } = await supabase.functions.invoke('create-customer', {
-        body: { 
-          email: user.email,
-          name: user.user_metadata?.display_name || user.email?.split('@')[0]
-        }
+      // Create Stripe customer automatically using wrapper
+      const { data: customerData, error: customerError } = await supabase.rpc('create_stripe_customer_via_wrapper', {
+        customer_email: user.email,
+        customer_name: user.user_metadata?.display_name || user.email?.split('@')[0],
+        customer_description: null
       })
 
       if (customerError) {
@@ -63,7 +62,7 @@ export function InitialPlanSelection({ onComplete }: InitialPlanSelectionProps) 
       }
 
       if (customerData?.success) {
-        console.log('Stripe customer created automatically:', customerData.customer_id)
+        console.log('Stripe customer created via wrapper:', customerData.customer_id)
 
         // Fetch Professional plan price ID from vault
         console.log('Fetching Professional plan price ID from vault...')
@@ -78,15 +77,12 @@ export function InitialPlanSelection({ onComplete }: InitialPlanSelectionProps) 
 
         console.log('Using price ID from vault:', priceIdData)
 
-        // Create default trial subscription (10 days free Professional plan)
-        console.log('Creating default trial subscription...')
-        const { data: subscriptionData, error: subscriptionError } = await supabase.functions.invoke('create-subscription', {
-          body: {
-            priceId: priceIdData,
-            customerId: customerData.customer_id,
-            couponId: 'TRIAL10', // 10-day trial promotion
-            trialDays: 10
-          }
+        // Create default trial subscription (10 days free Professional plan) using wrapper
+        console.log('Creating default trial subscription via wrapper...')
+        const { data: subscriptionData, error: subscriptionError } = await supabase.rpc('create_subscription_pure_wrapper', {
+          customer_id: customerData.customer_id,
+          price_id: priceIdData,
+          trial_days: 10
         })
 
         if (subscriptionError) {
@@ -96,7 +92,7 @@ export function InitialPlanSelection({ onComplete }: InitialPlanSelectionProps) 
         }
 
         if (subscriptionData?.success) {
-          console.log('Trial subscription created successfully:', subscriptionData.subscription_id)
+          console.log('Trial subscription created via wrapper:', subscriptionData.subscription_id)
           setCustomerCreated(true)
         } else {
           setError('Fehler beim Aktivieren der Testversion')
