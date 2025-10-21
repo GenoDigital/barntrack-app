@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,7 +24,8 @@ export default function SignupPage() {
   const [plans, setPlans] = useState<any[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
   const [stripePrices, setStripePrices] = useState<any[]>([])
-  
+  const [tokenFromUrl, setTokenFromUrl] = useState(false)
+
   // Additional fields for farm owners
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -36,7 +37,24 @@ export default function SignupPage() {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const supabase = createClient()
+
+  // Read invitation token from URL on mount
+  useEffect(() => {
+    const invitationParam = searchParams.get('invitation')
+    const emailParam = searchParams.get('email')
+
+    if (invitationParam) {
+      setInvitationToken(invitationParam)
+      setIsInviteMode(true)
+      setTokenFromUrl(true)
+    }
+
+    if (emailParam) {
+      setEmail(emailParam)
+    }
+  }, [searchParams])
 
   useEffect(() => {
     loadPlans()
@@ -210,6 +228,7 @@ export default function SignupPage() {
                   variant={isInviteMode ? "default" : "outline"}
                   onClick={() => setIsInviteMode(true)}
                   className="flex-1"
+                  disabled={tokenFromUrl}
                 >
                   Mit Einladung
                 </Button>
@@ -218,10 +237,18 @@ export default function SignupPage() {
                   variant={!isInviteMode ? "default" : "outline"}
                   onClick={() => setIsInviteMode(false)}
                   className="flex-1"
+                  disabled={tokenFromUrl}
                 >
                   Stallbesitzer
                 </Button>
               </div>
+              {tokenFromUrl && (
+                <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <p className="text-sm text-blue-900 dark:text-blue-100">
+                    Sie wurden eingeladen, einem Betrieb beizutreten. Bitte füllen Sie die Felder unten aus, um Ihr Konto zu erstellen.
+                  </p>
+                </div>
+              )}
               {isInviteMode && (
                 <div className="space-y-2">
                   <Label htmlFor="invitationToken">Einladungstoken</Label>
@@ -233,7 +260,14 @@ export default function SignupPage() {
                     onChange={(e) => setInvitationToken(e.target.value)}
                     required
                     disabled={loading}
+                    readOnly={tokenFromUrl}
+                    className={tokenFromUrl ? 'bg-muted' : ''}
                   />
+                  {tokenFromUrl && (
+                    <p className="text-xs text-muted-foreground">
+                      ✓ Einladungstoken wurde automatisch aus dem Link übernommen
+                    </p>
+                  )}
                 </div>
               )}
               
@@ -508,7 +542,14 @@ export default function SignupPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   disabled={loading}
+                  readOnly={tokenFromUrl && email !== ''}
+                  className={tokenFromUrl && email !== '' ? 'bg-muted' : ''}
                 />
+                {tokenFromUrl && email && (
+                  <p className="text-xs text-muted-foreground">
+                    Diese Einladung ist für diese E-Mail-Adresse bestimmt
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Passwort</Label>

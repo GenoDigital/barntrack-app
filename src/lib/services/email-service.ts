@@ -19,7 +19,7 @@ export async function sendInvitationEmail(params: {
   farmName: string
   invitationToken: string
 }) {
-  const invitationLink = `${APP_URL}/signup?invitation=${params.invitationToken}`
+  const invitationLink = `${APP_URL}/signup?invitation=${params.invitationToken}&email=${encodeURIComponent(params.to)}`
 
   try {
     const supabase = createClient()
