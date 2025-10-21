@@ -16,6 +16,7 @@ import { RoleManagement } from '@/components/farm/role-management'
 import { DeleteFarmDialog } from '@/components/farm/delete-farm-dialog'
 import { InviteUserDialog } from '@/components/admin/invite-user-dialog'
 import { SupplierManagement } from '@/components/farm/supplier-management'
+import { PendingInvitationsTable } from '@/components/farm/pending-invitations-table'
 import { Settings, Users, Trash2, UserPlus, Info, Building } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -303,14 +304,14 @@ export default function FarmSettingsPage() {
         )}
 
         {canManageUsers && (
-          <TabsContent value="members">
+          <TabsContent value="members" className="space-y-6">
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Farm Members</CardTitle>
+                    <CardTitle>Mitglieder</CardTitle>
                     <CardDescription>
-                      Manage user access and permissions for this farm
+                      Aktive Mitglieder mit Zugriff auf diesen Betrieb
                     </CardDescription>
                   </div>
                   <Button
@@ -318,12 +319,27 @@ export default function FarmSettingsPage() {
                     className="flex items-center gap-2"
                   >
                     <UserPlus className="h-4 w-4" />
-                    Invite User
+                    Benutzer einladen
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
                 <RoleManagement key={refreshKey} />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Ausstehende Einladungen</CardTitle>
+                <CardDescription>
+                  Einladungen, die noch nicht angenommen wurden
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <PendingInvitationsTable
+                  key={refreshKey}
+                  onRefresh={() => setRefreshKey(prev => prev + 1)}
+                />
               </CardContent>
             </Card>
           </TabsContent>
