@@ -21,16 +21,14 @@ export interface CreateFarmResult {
 
 /**
  * Server Action: Create a new farm
- *
- * This runs on the server with proper authentication context,
- * ensuring auth.uid() works correctly in RLS policies and triggers.
+ * Simple approach using upsert (like users table which works)
  */
 export async function createFarmAction(params: CreateFarmParams): Promise<CreateFarmResult> {
   const supabase = await createClient()
 
   try {
-    // Get the current user from server-side session
     const { data: { user }, error: authError } = await supabase.auth.getUser()
+
     if (authError || !user) {
       return {
         success: false,
@@ -38,7 +36,6 @@ export async function createFarmAction(params: CreateFarmParams): Promise<Create
       }
     }
 
-    // Validate farm name
     if (!params.name.trim()) {
       return {
         success: false,
@@ -46,7 +43,7 @@ export async function createFarmAction(params: CreateFarmParams): Promise<Create
       }
     }
 
-    // Check subscription limits via RPC
+    // Check subscription limits
     const { data: canCreate, error: limitError } = await supabase
       .rpc('can_user_create_farm', { user_uuid: user.id })
 
@@ -61,11 +58,11 @@ export async function createFarmAction(params: CreateFarmParams): Promise<Create
     if (!canCreate) {
       return {
         success: false,
-        error: 'Sie haben das Maximum an Ställen für Ihren Plan erreicht. Bitte upgraden Sie Ihren Plan.'
+        error: 'Sie haben das Maximum an Ställen für Ihren Plan erreicht'
       }
     }
 
-    // Ensure user record exists in users table
+    // Ensure user record exists (uses upsert, works fine)
     const { error: userError } = await supabase
       .from('users')
       .upsert({
@@ -83,49 +80,40 @@ export async function createFarmAction(params: CreateFarmParams): Promise<Create
       }
     }
 
-    // Create the farm (RLS and trigger will validate)
+    // Create farm via SECURITY DEFINER function (bypasses RLS but validates auth)
+    // This validates: auth.uid() matches user_uuid AND subscription limits
     const { data: farm, error: farmError } = await supabase
-      .from('farms')
-      .insert({
-        name: params.name.trim(),
-        description: params.description?.trim() || null,
-        owner_id: user.id
+      .rpc('create_farm_for_user', {
+        user_uuid: user.id,
+        farm_name: params.name.trim(),
+        farm_description: params.description?.trim() || null
       })
-      .select()
-      .single()
 
     if (farmError) {
-      console.error('Error creating farm:', farmError)
+      console.error('Farm creation error:', farmError)
       return {
         success: false,
         error: farmError.message || 'Fehler beim Erstellen des Stalls'
       }
     }
 
-    // Create farm membership with owner role
-    const { error: memberError } = await supabase
-      .from('farm_members')
-      .insert({
-        farm_id: farm.id,
-        user_id: user.id,
-        role: 'owner'
-      })
-
-    if (memberError) {
-      console.error('Error creating farm membership:', memberError)
+    if (!farm) {
       return {
         success: false,
-        error: 'Fehler beim Erstellen der Stallmitgliedschaft'
+        error: 'Stall konnte nicht erstellt werden'
       }
     }
 
-    // Revalidate relevant paths
+    // Parse the JSON result
+    const farmData = typeof farm === 'string' ? JSON.parse(farm) : farm
+
+    // Revalidate paths
     revalidatePath('/dashboard')
     revalidatePath('/dashboard/setup')
 
     return {
       success: true,
-      farm
+      farm: farmData
     }
   } catch (error) {
     console.error('Unexpected error creating farm:', error)
