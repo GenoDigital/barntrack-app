@@ -63,41 +63,53 @@ export function PendingInvitationsTable({ onRefresh }: PendingInvitationsTablePr
 
     setLoading(true)
     try {
-      const { data, error } = await supabase
+      // Fetch invitations
+      const { data: invitationsData, error: invitationsError } = await supabase
         .from('invitations')
-        .select(`
-          id,
-          email,
-          token,
-          created_at,
-          expires_at,
-          used_at,
-          invited_by (
-            display_name,
-            email
-          )
-        `)
+        .select('id, email, token, created_at, expires_at, used_at, invited_by')
         .eq('farm_id', currentFarmId)
         .is('used_at', null)
         .order('created_at', { ascending: false })
 
-      if (error) throw error
+      if (invitationsError) throw invitationsError
 
-      // Transform the data to flatten the invited_by relation
-      const transformedData = (data || []).map((inv: any) => ({
+      // Get unique inviter IDs
+      const inviterIds = [...new Set(
+        (invitationsData || [])
+          .map(inv => inv.invited_by)
+          .filter(id => id !== null)
+      )]
+
+      // Fetch inviter details if there are any
+      let invitersMap: Record<string, { display_name: string | null; email: string | null }> = {}
+      if (inviterIds.length > 0) {
+        const { data: invitersData, error: invitersError } = await supabase
+          .from('users')
+          .select('id, display_name, email')
+          .in('id', inviterIds)
+
+        if (!invitersError && invitersData) {
+          invitersMap = invitersData.reduce((acc, user) => ({
+            ...acc,
+            [user.id]: { display_name: user.display_name, email: user.email }
+          }), {})
+        }
+      }
+
+      // Transform the data
+      const transformedData = (invitationsData || []).map((inv) => ({
         id: inv.id,
         email: inv.email,
         token: inv.token,
         created_at: inv.created_at,
         expires_at: inv.expires_at,
         used_at: inv.used_at,
-        inviter_name: inv.invited_by?.display_name || null,
-        inviter_email: inv.invited_by?.email || null,
+        inviter_name: inv.invited_by ? invitersMap[inv.invited_by]?.display_name || null : null,
+        inviter_email: inv.invited_by ? invitersMap[inv.invited_by]?.email || null : null,
       }))
 
       setInvitations(transformedData)
-    } catch (error) {
-      console.error('Error loading invitations:', error)
+    } catch {
       toast.error('Fehler beim Laden der Einladungen')
     } finally {
       setLoading(false)
@@ -125,8 +137,7 @@ export function PendingInvitationsTable({ onRefresh }: PendingInvitationsTablePr
     try {
       await navigator.clipboard.writeText(invitationUrl)
       toast.success('Einladungslink kopiert')
-    } catch (error) {
-      console.error('Error copying to clipboard:', error)
+    } catch {
       toast.error('Fehler beim Kopieren des Links')
     }
   }
@@ -166,13 +177,11 @@ export function PendingInvitationsTable({ onRefresh }: PendingInvitationsTablePr
       })
 
       if (emailError) {
-        console.error('Error resending invitation:', emailError)
         toast.error('Fehler beim Versenden der E-Mail')
       } else {
         toast.success(`Einladung an ${invitation.email} wurde erneut versendet`)
       }
-    } catch (error) {
-      console.error('Error resending invitation:', error)
+    } catch {
       toast.error('Fehler beim erneuten Versenden der Einladung')
     } finally {
       setActionLoading(null)
@@ -203,8 +212,7 @@ export function PendingInvitationsTable({ onRefresh }: PendingInvitationsTablePr
       if (onRefresh) {
         onRefresh()
       }
-    } catch (error) {
-      console.error('Error revoking invitation:', error)
+    } catch {
       toast.error('Fehler beim Widerrufen der Einladung')
     } finally {
       setActionLoading(null)

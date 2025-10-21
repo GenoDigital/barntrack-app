@@ -18,12 +18,8 @@ export default function DashboardError({
   const router = useRouter()
 
   useEffect(() => {
-    // Log error to console in development
-    console.error('Dashboard error:', error)
-
     // Check if this is an auth error
     if (isAuthError(error)) {
-      console.log('Auth error in dashboard, redirecting to login...')
       // Clear session storage and redirect to login
       sessionStorage.clear()
       router.push('/login?message=Your session has expired. Please log in again.')

@@ -17,12 +17,8 @@ export default function Error({
   const router = useRouter()
 
   useEffect(() => {
-    // Log error to console in development
-    console.error('Global error:', error)
-
     // Check if this is an auth error
     if (isAuthError(error)) {
-      console.log('Auth error detected, redirecting to login...')
       // Clear session storage and redirect to login
       sessionStorage.clear()
       router.push('/login?message=Your session has expired. Please log in again.')

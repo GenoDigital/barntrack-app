@@ -166,15 +166,9 @@ export async function uploadConsumptionData(data: ParsedData, farmId?: string): 
     }
 
     // Insert records in batches using upsert
-    console.log(`Verarbeite ${consumptionRecords.length} Datensätze in Batches von ${batchSize}...`)
-    
     for (let i = 0; i < consumptionRecords.length; i += batchSize) {
       const batch = consumptionRecords.slice(i, i + batchSize)
-      const batchNumber = Math.floor(i / batchSize) + 1
-      const totalBatches = Math.ceil(consumptionRecords.length / batchSize)
-      
-      console.log(`Verarbeite Batch ${batchNumber}/${totalBatches} (${batch.length} Datensätze)...`)
-      
+
       try {
         const { error: upsertError, count } = await supabase
           .from('consumption')
@@ -188,7 +182,6 @@ export async function uploadConsumptionData(data: ParsedData, farmId?: string): 
         } else {
           result.created += count || batch.length
           result.processed += batch.length
-          console.log(`Batch ${batchNumber} erfolgreich verarbeitet (${count || batch.length} Datensätze)`)
         }
       } catch (error) {
         result.errors.push(`Batch-Verarbeitungsfehler: ${error instanceof Error ? error.message : 'Unbekannt'}`)
@@ -205,8 +198,6 @@ export async function uploadConsumptionData(data: ParsedData, farmId?: string): 
         error_message: result.errors.length > 0 ? result.errors.join('; ') : null
       })
       .eq('id', upload.id)
-
-    console.log('Upload completed:', result)
 
   } catch (error) {
     result.errors.push(error instanceof Error ? error.message : 'Unbekannter Fehler')

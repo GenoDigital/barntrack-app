@@ -35,14 +35,11 @@ export async function sendInvitationEmail(params: {
     })
 
     if (error) {
-      console.error('Failed to send invitation email:', error)
       return { success: false, error }
     }
 
-    console.log('Invitation email sent:', data)
     return { success: true, messageId: data?.emailId }
   } catch (error) {
-    console.error('Failed to send invitation email:', error)
     return { success: false, error }
   }
 }
@@ -81,14 +78,11 @@ export async function sendNotificationEmail(params: {
     })
 
     if (error) {
-      console.error('Failed to send notification email:', error)
       return { success: false, error }
     }
 
-    console.log('Notification email sent:', data)
     return { success: true, messageId: data?.emailId }
   } catch (error) {
-    console.error('Failed to send notification email:', error)
     return { success: false, error }
   }
 }
@@ -114,14 +108,11 @@ export async function sendWelcomeEmail(params: {
     })
 
     if (error) {
-      console.error('Failed to send welcome email:', error)
       return { success: false, error }
     }
 
-    console.log('Welcome email sent:', data)
     return { success: true, messageId: data?.emailId }
   } catch (error) {
-    console.error('Failed to send welcome email:', error)
     return { success: false, error }
   }
 }
@@ -141,14 +132,11 @@ export async function sendTestEmail(to: string) {
     })
 
     if (error) {
-      console.error('Failed to send test email:', error)
       return { success: false, error }
     }
 
-    console.log('Test email sent:', data)
     return { success: true, result: data }
   } catch (error) {
-    console.error('Failed to send test email:', error)
     return { success: false, error }
   }
 }

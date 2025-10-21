@@ -64,7 +64,6 @@ export async function createFarm(params: CreateFarmParams): Promise<CreateFarmRe
       .rpc('can_user_create_farm', { user_uuid: user.id })
 
     if (limitError) {
-      console.error('Error checking farm creation limits:', limitError)
       return {
         success: false,
         error: 'Fehler beim Überprüfen der Berechtigung'
@@ -89,20 +88,11 @@ export async function createFarm(params: CreateFarmParams): Promise<CreateFarmRe
       })
 
     if (userError) {
-      console.error('Error creating user record:', userError)
       return {
         success: false,
         error: 'Fehler beim Erstellen des Benutzerdatensatzes'
       }
     }
-
-    // Debug: Check what the database sees
-    console.log('About to create farm with owner_id:', user.id)
-    console.log('User email:', user.email)
-
-    // Test if auth context is working
-    const { data: authTest, error: authTestError } = await supabase.rpc('auth.uid' as any)
-    console.log('Database auth.uid() returns:', authTest, 'Error:', authTestError)
 
     // Create the farm
     const { data: farm, error: farmError } = await supabase
@@ -116,8 +106,6 @@ export async function createFarm(params: CreateFarmParams): Promise<CreateFarmRe
       .single()
 
     if (farmError) {
-      console.error('Error creating farm:', farmError)
-      console.error('User ID attempted:', user.id)
       return {
         success: false,
         error: 'Fehler beim Erstellen des Stalls'
@@ -134,10 +122,8 @@ export async function createFarm(params: CreateFarmParams): Promise<CreateFarmRe
       })
 
     if (memberError) {
-      console.error('Error creating farm membership:', memberError)
       // This is critical - if membership fails, the user won't be able to access the farm
       // We should try to clean up the farm, but that might fail due to RLS
-      // Log the error and return it
       return {
         success: false,
         error: 'Fehler beim Erstellen der Stallmitgliedschaft'
@@ -148,8 +134,7 @@ export async function createFarm(params: CreateFarmParams): Promise<CreateFarmRe
       success: true,
       farm
     }
-  } catch (error) {
-    console.error('Unexpected error creating farm:', error)
+  } catch {
     return {
       success: false,
       error: 'Ein unerwarteter Fehler ist aufgetreten'
@@ -173,13 +158,11 @@ export async function canUserCreateFarm(): Promise<boolean> {
       .rpc('can_user_create_farm', { user_uuid: user.id })
 
     if (error) {
-      console.error('Error checking farm creation ability:', error)
       return false
     }
 
     return data === true
-  } catch (error) {
-    console.error('Error in canUserCreateFarm:', error)
+  } catch {
     return false
   }
 }

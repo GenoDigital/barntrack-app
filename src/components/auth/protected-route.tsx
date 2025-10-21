@@ -25,7 +25,6 @@ export function ProtectedRoute({ children, requiresFarm = false }: ProtectedRout
           redirectOnError: false, // We'll handle redirect ourselves
           onError: (error) => {
             if (isAuthError(error)) {
-              console.log('Auth error in protected route, redirecting...')
               router.push('/login?message=Your session has expired. Please log in again.')
             }
           }
@@ -52,7 +51,6 @@ export function ProtectedRoute({ children, requiresFarm = false }: ProtectedRout
           }
         }
       } catch (err) {
-        console.error('Auth check error:', err)
         const error = err instanceof Error ? err : new Error(String(err))
 
         if (isAuthError(error)) {
@@ -70,13 +68,11 @@ export function ProtectedRoute({ children, requiresFarm = false }: ProtectedRout
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
-        console.log('Auth state changed to signed out, redirecting...')
         router.push('/login?message=You have been signed out.')
       }
 
       // Handle token refresh failures
       if (event === 'TOKEN_REFRESHED' && !session) {
-        console.warn('Token refresh failed in protected route')
         router.push('/login?message=Your session has expired. Please log in again.')
       }
     })

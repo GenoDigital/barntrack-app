@@ -21,8 +21,6 @@ export async function safeGetUser(options?: {
     const { data: { user }, error } = await supabase.auth.getUser()
 
     if (error) {
-      console.warn('Auth error in safeGetUser:', error.message)
-
       // Handle auth-specific errors
       if (isAuthError(error)) {
         handleAuthError(error, options?.redirectOnError)
@@ -38,7 +36,6 @@ export async function safeGetUser(options?: {
     return user
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error))
-    console.error('Exception in safeGetUser:', err)
 
     if (isAuthError(err)) {
       handleAuthError(err, options?.redirectOnError)
@@ -79,8 +76,6 @@ export function isAuthError(error: Error | { message?: string }): boolean {
  * Handle authentication errors
  */
 export function handleAuthError(error: Error | { message?: string }, shouldRedirect = true) {
-  console.warn('Auth error detected:', error.message)
-
   if (shouldRedirect && typeof window !== 'undefined') {
     // Clear any stale data
     sessionStorage.clear()
@@ -106,23 +101,18 @@ export function setupAuthErrorListener() {
 
   // Listen for auth state changes
   const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-    console.log('Auth state changed:', event, session?.user?.id)
-
     // Handle sign out
     if (event === 'SIGNED_OUT') {
-      console.log('User signed out, redirecting to login...')
       window.location.href = '/login'
     }
 
     // Handle token refresh errors
     if (event === 'TOKEN_REFRESHED' && !session) {
-      console.warn('Token refresh failed, session lost')
       handleAuthError(new Error('Token refresh failed'))
     }
 
     // Handle user deletion
     if (event === 'USER_DELETED') {
-      console.log('User deleted, redirecting to login...')
       window.location.href = '/login'
     }
   })
@@ -171,21 +161,17 @@ export async function refreshSessionIfNeeded(): Promise<boolean> {
     const fiveMinutes = 5 * 60 * 1000
 
     if (expiresAt && (expiresAt * 1000 - Date.now()) < fiveMinutes) {
-      console.log('Session expiring soon, refreshing...')
       const { error: refreshError } = await supabase.auth.refreshSession()
 
       if (refreshError) {
-        console.error('Failed to refresh session:', refreshError)
         return false
       }
 
-      console.log('Session refreshed successfully')
       return true
     }
 
     return true
-  } catch (error) {
-    console.error('Error checking/refreshing session:', error)
+  } catch {
     return false
   }
 }

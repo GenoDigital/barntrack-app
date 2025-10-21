@@ -38,8 +38,7 @@ export function RedirectIfAuthenticated({ children }: RedirectIfAuthenticatedPro
 
         // User is not authenticated, show the page
         setShouldShowPage(true)
-      } catch (err) {
-        console.error('Auth check error:', err)
+      } catch {
         setShouldShowPage(true)
       } finally {
         setIsLoading(false)
