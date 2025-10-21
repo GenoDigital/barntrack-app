@@ -208,8 +208,10 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/dashboard/setup', request.url))
       }
     } else {
-      // Member without farm - needs to accept invitation
-      return NextResponse.redirect(new URL('/login?message=Please check your invitation email to join your farm.', request.url))
+      // Member without farm - allow them to stay on login/signup page
+      // They need to check their invitation email and click the link to /accept-invitation
+      // Don't redirect to avoid infinite loop
+      return response
     }
   }
 
