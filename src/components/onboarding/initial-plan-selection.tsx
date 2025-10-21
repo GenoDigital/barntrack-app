@@ -28,9 +28,27 @@ export function InitialPlanSelection({ onComplete }: InitialPlanSelectionProps) 
 
       // Get current user
       const { data: { user }, error: userError } = await supabase.auth.getUser()
-      
+
       if (userError || !user) {
         setError('Benutzer nicht gefunden')
+        return
+      }
+
+      // Check if user is a farm owner (not an invited member)
+      const { data: userData, error: userDataError } = await supabase
+        .from('users')
+        .select('user_type')
+        .eq('id', user.id)
+        .single()
+
+      if (userDataError) {
+        setError('Fehler beim Laden der Benutzerdaten')
+        return
+      }
+
+      if (userData?.user_type !== 'owner') {
+        setError('Diese Seite ist nur für Betriebsinhaber. Wenn Sie zu einem Betrieb eingeladen wurden, überprüfen Sie bitte Ihre Einladungs-E-Mail.')
+        setLoading(false)
         return
       }
 

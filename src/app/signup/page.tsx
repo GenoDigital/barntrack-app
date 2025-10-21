@@ -144,11 +144,8 @@ function SignupForm() {
         // User record is automatically created by database trigger
         // No need to manually insert into users table
 
-        // Mark invitation as used
-        await supabase
-          .from('invitations')
-          .update({ used_at: new Date().toISOString() })
-          .eq('id', invitation.id)
+        // Note: Invitation will be marked as used by process_invitation function
+        // after email verification is complete
       } else {
         // Direct signup (for farm owners) - secure approach
         const autoDisplayName = displayName || `${firstName} ${lastName}`.trim()
@@ -193,14 +190,11 @@ function SignupForm() {
         }
       }
 
-      // Redirect based on signup type
-      if (isInviteMode) {
-        router.push('/dashboard')
-      } else {
-        // For farm owners: redirect to login to complete email verification
-        // After verification, they'll go to onboarding for plan selection
-        router.push('/login?message=Please check your email and click the verification link to complete your account setup.')
-      }
+      // Redirect to login for email verification (both invited users and farm owners)
+      // After verification:
+      // - Invited users → /accept-invitation?token=TOKEN (via emailRedirectTo)
+      // - Farm owners → /onboarding (via emailRedirectTo)
+      router.push('/login?message=Please check your email and click the verification link to complete your account setup.')
     } catch (err) {
       console.error('Signup error:', err)
       setError(`Fehler bei der Registrierung: ${err instanceof Error ? err.message : String(err)}`)

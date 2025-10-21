@@ -85,9 +85,19 @@ export async function middleware(request: NextRequest) {
       return response
     }
 
-    // Check database directly for farm membership and subscription status
+    // Check database directly for user type, farm membership, and subscription status
     // This is more reliable than JWT claims which can become stale
     // Note: Supabase RLS policies ensure users can only see their own data
+
+    // Get user type to differentiate owners from members
+    const { data: userData } = await supabase
+      .from('users')
+      .select('user_type')
+      .eq('id', user.id)
+      .single()
+
+    const userType = userData?.user_type || 'member'
+
     const { data: farmData } = await supabase
       .from('farm_members')
       .select('farm_id')
@@ -107,33 +117,64 @@ export async function middleware(request: NextRequest) {
 
     const hasSubscription = !!subData
 
-    // Redirect logic based on subscription and farm status
-    // Invited users (have farm but no subscription) can access dashboard
-    if (!hasSubscription && !hasFarm) {
-      // No subscription and no farm - redirect to onboarding
-      if (!request.nextUrl.pathname.startsWith('/onboarding')) {
-        return NextResponse.redirect(new URL('/onboarding', request.url))
+    // Redirect logic based on user type, subscription, and farm status
+    if (userType === 'owner') {
+      // Farm owners need subscription before farm access
+      if (!hasSubscription) {
+        // No subscription - redirect to onboarding
+        if (!request.nextUrl.pathname.startsWith('/onboarding')) {
+          return NextResponse.redirect(new URL('/onboarding', request.url))
+        }
+      } else if (!hasFarm) {
+        // Has subscription but no farm - redirect to setup
+        if (!request.nextUrl.pathname.startsWith('/dashboard/setup')) {
+          return NextResponse.redirect(new URL('/dashboard/setup', request.url))
+        }
+      } else {
+        // Has both subscription and farm - redirect away from setup/onboarding
+        if (request.nextUrl.pathname.startsWith('/dashboard/setup') ||
+            request.nextUrl.pathname.startsWith('/onboarding')) {
+          return NextResponse.redirect(new URL('/dashboard', request.url))
+        }
       }
-    } else if (hasSubscription && !hasFarm) {
-      // Has subscription but no farm - redirect to setup
-      if (!request.nextUrl.pathname.startsWith('/dashboard/setup')) {
-        return NextResponse.redirect(new URL('/dashboard/setup', request.url))
-      }
-    } else if (hasFarm) {
-      // Has farm (with or without subscription - invited users don't need subscription)
-      // Redirect away from setup/onboarding to dashboard
-      if (request.nextUrl.pathname.startsWith('/dashboard/setup') ||
-          request.nextUrl.pathname.startsWith('/onboarding')) {
-        return NextResponse.redirect(new URL('/dashboard', request.url))
+    } else {
+      // Members (invited users) - don't need subscription
+      if (!hasFarm) {
+        // Member without farm - should accept invitation
+        // Block access to onboarding (that's for owners only)
+        if (request.nextUrl.pathname.startsWith('/onboarding')) {
+          return NextResponse.redirect(new URL('/login?message=Please check your invitation email to join your farm.', request.url))
+        }
+        // Block dashboard access until they accept invitation
+        if (request.nextUrl.pathname.startsWith('/dashboard') &&
+            !request.nextUrl.pathname.startsWith('/accept-invitation')) {
+          return NextResponse.redirect(new URL('/login?message=Please check your invitation email to join your farm.', request.url))
+        }
+      } else {
+        // Member with farm - allow dashboard access, block onboarding
+        if (request.nextUrl.pathname.startsWith('/onboarding') ||
+            request.nextUrl.pathname.startsWith('/dashboard/setup')) {
+          return NextResponse.redirect(new URL('/dashboard', request.url))
+        }
       }
     }
   }
 
   // Redirect authenticated users away from auth pages
   if (user && (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/signup')) {
-    // Check database directly for farm membership and subscription status
+    // Check database directly for user type, farm membership, and subscription status
     // This is more reliable than JWT claims which can become stale
     // Note: Supabase RLS policies ensure users can only see their own data
+
+    // Get user type
+    const { data: userData } = await supabase
+      .from('users')
+      .select('user_type')
+      .eq('id', user.id)
+      .single()
+
+    const userType = userData?.user_type || 'member'
+
     const { data: farmData } = await supabase
       .from('farm_members')
       .select('farm_id')
@@ -153,14 +194,22 @@ export async function middleware(request: NextRequest) {
 
     const hasSubscription = !!subData
 
-    // Invited users (have farm but no subscription) go to dashboard
+    // Redirect based on user type and status
     if (hasFarm) {
+      // User has farm access - redirect to dashboard
       return NextResponse.redirect(new URL('/dashboard', request.url))
-    } else if (!hasSubscription) {
-      return NextResponse.redirect(new URL('/onboarding', request.url))
+    } else if (userType === 'owner') {
+      // Farm owner without farm
+      if (!hasSubscription) {
+        // No subscription - go to onboarding
+        return NextResponse.redirect(new URL('/onboarding', request.url))
+      } else {
+        // Has subscription but no farm - go to setup
+        return NextResponse.redirect(new URL('/dashboard/setup', request.url))
+      }
     } else {
-      // Has subscription but no farm
-      return NextResponse.redirect(new URL('/dashboard/setup', request.url))
+      // Member without farm - needs to accept invitation
+      return NextResponse.redirect(new URL('/login?message=Please check your invitation email to join your farm.', request.url))
     }
   }
 

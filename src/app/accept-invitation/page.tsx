@@ -54,6 +54,18 @@ function AcceptInvitationContent() {
       const result = data as { success: boolean; error?: string; farm_id?: string; role?: string }
 
       if (!result.success) {
+        // Check if this is because invitation was already used
+        // If so, verify if farm membership exists
+        if (result.error && result.error.includes('already a member')) {
+          // User is already a member - just redirect to dashboard
+          setTimeout(() => {
+            router.push('/dashboard')
+          }, 1500)
+          setStatus('success')
+          setRole('existing member')
+          return
+        }
+
         setError(result.error || 'Unbekannter Fehler beim Verarbeiten der Einladung')
         setStatus('error')
         return
