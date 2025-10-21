@@ -127,6 +127,7 @@ function SignupForm() {
           email,
           password,
           options: {
+            emailRedirectTo: `${window.location.origin}/dashboard`,
             data: {
               display_name: displayName,
               signup_source: 'invitation'  // Invitation signups are always members
@@ -155,6 +156,7 @@ function SignupForm() {
           email,
           password,
           options: {
+            emailRedirectTo: `${window.location.origin}/onboarding`,
             data: {
               display_name: autoDisplayName,
               first_name: firstName,
