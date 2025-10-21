@@ -127,7 +127,7 @@ function SignupForm() {
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/dashboard`,
+            emailRedirectTo: `${window.location.origin}/accept-invitation?token=${invitationToken}`,
             data: {
               display_name: displayName,
               signup_source: 'invitation'  // Invitation signups are always members

@@ -68,15 +68,21 @@ export async function middleware(request: NextRequest) {
   )
 
   const {
-    data: { user, session },
+    data: { user },
   } = await supabase.auth.getUser()
 
-  // Protect dashboard, onboarding, and checkout routes
+  // Protect dashboard, onboarding, checkout, and accept-invitation routes
   if (request.nextUrl.pathname.startsWith('/dashboard') ||
       request.nextUrl.pathname.startsWith('/onboarding') ||
-      request.nextUrl.pathname.startsWith('/checkout')) {
+      request.nextUrl.pathname.startsWith('/checkout') ||
+      request.nextUrl.pathname.startsWith('/accept-invitation')) {
     if (!user) {
       return NextResponse.redirect(new URL('/login', request.url))
+    }
+
+    // Allow accept-invitation page without additional checks (it handles its own logic)
+    if (request.nextUrl.pathname.startsWith('/accept-invitation')) {
+      return response
     }
 
     // Check database directly for farm membership and subscription status
@@ -102,18 +108,20 @@ export async function middleware(request: NextRequest) {
     const hasSubscription = !!subData
 
     // Redirect logic based on subscription and farm status
-    if (!hasSubscription) {
-      // No subscription - redirect to onboarding
+    // Invited users (have farm but no subscription) can access dashboard
+    if (!hasSubscription && !hasFarm) {
+      // No subscription and no farm - redirect to onboarding
       if (!request.nextUrl.pathname.startsWith('/onboarding')) {
         return NextResponse.redirect(new URL('/onboarding', request.url))
       }
-    } else if (!hasFarm) {
+    } else if (hasSubscription && !hasFarm) {
       // Has subscription but no farm - redirect to setup
       if (!request.nextUrl.pathname.startsWith('/dashboard/setup')) {
         return NextResponse.redirect(new URL('/dashboard/setup', request.url))
       }
-    } else {
-      // Has both subscription and farm - redirect away from setup/onboarding
+    } else if (hasFarm) {
+      // Has farm (with or without subscription - invited users don't need subscription)
+      // Redirect away from setup/onboarding to dashboard
       if (request.nextUrl.pathname.startsWith('/dashboard/setup') ||
           request.nextUrl.pathname.startsWith('/onboarding')) {
         return NextResponse.redirect(new URL('/dashboard', request.url))
@@ -145,12 +153,14 @@ export async function middleware(request: NextRequest) {
 
     const hasSubscription = !!subData
 
-    if (!hasSubscription) {
-      return NextResponse.redirect(new URL('/onboarding', request.url))
-    } else if (!hasFarm) {
-      return NextResponse.redirect(new URL('/dashboard/setup', request.url))
-    } else {
+    // Invited users (have farm but no subscription) go to dashboard
+    if (hasFarm) {
       return NextResponse.redirect(new URL('/dashboard', request.url))
+    } else if (!hasSubscription) {
+      return NextResponse.redirect(new URL('/onboarding', request.url))
+    } else {
+      // Has subscription but no farm
+      return NextResponse.redirect(new URL('/dashboard/setup', request.url))
     }
   }
 
