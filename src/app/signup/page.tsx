@@ -34,6 +34,10 @@ function SignupForm() {
   const [postalCode, setPostalCode] = useState('')
   const [city, setCity] = useState('')
   const [phoneNumber, setPhoneNumber] = useState('')
+  // GDPR Consent
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [privacyAccepted, setPrivacyAccepted] = useState(false)
+  const [marketingConsent, setMarketingConsent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const router = useRouter()
@@ -104,6 +108,13 @@ function SignupForm() {
     setLoading(true)
     setError(null)
 
+    // GDPR Validation - mandatory consents
+    if (!termsAccepted || !privacyAccepted) {
+      setError('Bitte akzeptieren Sie die AGB und Datenschutzerklärung, um fortzufahren.')
+      setLoading(false)
+      return
+    }
+
     try {
       if (isInviteMode) {
         // Invitation-based signup
@@ -130,7 +141,10 @@ function SignupForm() {
             emailRedirectTo: `${window.location.origin}/accept-invitation?token=${invitationToken}`,
             data: {
               display_name: displayName,
-              signup_source: 'invitation'  // Invitation signups are always members
+              signup_source: 'invitation',  // Invitation signups are always members
+              terms_accepted: termsAccepted,
+              privacy_accepted: privacyAccepted,
+              marketing_consent: marketingConsent
             },
           },
         })
@@ -163,7 +177,10 @@ function SignupForm() {
               postal_code: postalCode,
               city: city,
               phone_number: phoneNumber,
-              signup_source: 'direct'  // Indicates this is a direct signup
+              signup_source: 'direct',  // Indicates this is a direct signup
+              terms_accepted: termsAccepted,
+              privacy_accepted: privacyAccepted,
+              marketing_consent: marketingConsent
             },
           },
         })
@@ -558,6 +575,80 @@ function SignupForm() {
                   minLength={6}
                 />
               </div>
+
+              {/* GDPR Consent Checkboxes */}
+              <div className="space-y-3 pt-2">
+                <div className="space-y-3 border-t pt-4">
+                  <p className="text-sm font-medium">Datenschutz und Einwilligungen</p>
+
+                  {/* Terms & Conditions - Mandatory */}
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id="terms"
+                      checked={termsAccepted}
+                      onChange={(e) => setTermsAccepted(e.target.checked)}
+                      disabled={loading}
+                      className="mt-1 h-4 w-4 rounded border-gray-300"
+                    />
+                    <label htmlFor="terms" className="text-sm">
+                      Ich akzeptiere die{' '}
+                      <Link
+                        href="/terms"
+                        target="_blank"
+                        className="underline hover:text-primary"
+                      >
+                        Allgemeinen Geschäftsbedingungen (AGB)
+                      </Link>
+                      {' '}<span className="text-red-500">*</span>
+                    </label>
+                  </div>
+
+                  {/* Privacy Policy - Mandatory */}
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id="privacy"
+                      checked={privacyAccepted}
+                      onChange={(e) => setPrivacyAccepted(e.target.checked)}
+                      disabled={loading}
+                      className="mt-1 h-4 w-4 rounded border-gray-300"
+                    />
+                    <label htmlFor="privacy" className="text-sm">
+                      Ich habe die{' '}
+                      <Link
+                        href="/privacy"
+                        target="_blank"
+                        className="underline hover:text-primary"
+                      >
+                        Datenschutzerklärung
+                      </Link>
+                      {' '}gelesen und akzeptiere sie{' '}
+                      <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+
+                  {/* Marketing Consent - Optional */}
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id="marketing"
+                      checked={marketingConsent}
+                      onChange={(e) => setMarketingConsent(e.target.checked)}
+                      disabled={loading}
+                      className="mt-1 h-4 w-4 rounded border-gray-300"
+                    />
+                    <label htmlFor="marketing" className="text-sm text-muted-foreground">
+                      Ich möchte Informationen über neue Funktionen und Angebote per E-Mail erhalten (optional)
+                    </label>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    <span className="text-red-500">*</span> Pflichtfeld
+                  </p>
+                </div>
+              </div>
+
               {error && (
                 <div className="text-sm text-red-600 dark:text-red-400">
                   {error}
