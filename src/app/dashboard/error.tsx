@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Home, RefreshCw, AlertTriangle } from 'lucide-react'
+import { isAuthError } from '@/lib/auth-error-handler'
 
 export default function DashboardError({
   error,
@@ -13,9 +15,20 @@ export default function DashboardError({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  const router = useRouter()
+
   useEffect(() => {
     // Log error to console in development
     console.error('Dashboard error:', error)
+
+    // Check if this is an auth error
+    if (isAuthError(error)) {
+      console.log('Auth error in dashboard, redirecting to login...')
+      // Clear session storage and redirect to login
+      sessionStorage.clear()
+      router.push('/login?message=Your session has expired. Please log in again.')
+      return
+    }
 
     // TODO: Log to error monitoring service (e.g., Sentry) in production
     // if (process.env.NODE_ENV === 'production') {
@@ -23,7 +36,7 @@ export default function DashboardError({
     //     tags: { section: 'dashboard' }
     //   })
     // }
-  }, [error])
+  }, [error, router])
 
   return (
     <div className="p-6 max-w-2xl mx-auto">

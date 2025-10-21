@@ -1,13 +1,32 @@
+'use client'
+
+import { useEffect } from 'react'
 import { Sidebar } from '@/components/dashboard/sidebar'
 import { UserNav } from '@/components/dashboard/user-nav'
 import { FarmSelector } from '@/components/dashboard/farm-selector'
 import { ProtectedRoute } from '@/components/auth/protected-route'
+import { setupAuthErrorListener, refreshSessionIfNeeded } from '@/lib/auth-error-handler'
 
 export default function DashboardLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  // Setup global auth listener
+  useEffect(() => {
+    const cleanup = setupAuthErrorListener()
+
+    // Check session validity every 5 minutes
+    const intervalId = setInterval(() => {
+      refreshSessionIfNeeded()
+    }, 5 * 60 * 1000)
+
+    return () => {
+      cleanup?.()
+      clearInterval(intervalId)
+    }
+  }, [])
+
   return (
     <ProtectedRoute requiresFarm={true}>
       <div className="flex h-screen overflow-hidden">

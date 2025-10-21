@@ -1,9 +1,11 @@
 'use client'
 
 import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Home, RefreshCw, AlertTriangle } from 'lucide-react'
+import { isAuthError } from '@/lib/auth-error-handler'
 
 export default function Error({
   error,
@@ -12,15 +14,26 @@ export default function Error({
   error: Error & { digest?: string }
   reset: () => void
 }) {
+  const router = useRouter()
+
   useEffect(() => {
     // Log error to console in development
     console.error('Global error:', error)
+
+    // Check if this is an auth error
+    if (isAuthError(error)) {
+      console.log('Auth error detected, redirecting to login...')
+      // Clear session storage and redirect to login
+      sessionStorage.clear()
+      router.push('/login?message=Your session has expired. Please log in again.')
+      return
+    }
 
     // TODO: Log to error monitoring service (e.g., Sentry) in production
     // if (process.env.NODE_ENV === 'production') {
     //   Sentry.captureException(error)
     // }
-  }, [error])
+  }, [error, router])
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4">

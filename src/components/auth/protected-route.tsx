@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2 } from 'lucide-react'
+import { safeGetUser, isAuthError } from '@/lib/auth-error-handler'
 
 interface ProtectedRouteProps {
   children: React.ReactNode
@@ -19,9 +20,18 @@ export function ProtectedRoute({ children, requiresFarm = false }: ProtectedRout
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const { data: { user }, error } = await supabase.auth.getUser()
-        
-        if (error || !user) {
+        // Use safe getUser that handles auth errors
+        const user = await safeGetUser({
+          redirectOnError: false, // We'll handle redirect ourselves
+          onError: (error) => {
+            if (isAuthError(error)) {
+              console.log('Auth error in protected route, redirecting...')
+              router.push('/login?message=Your session has expired. Please log in again.')
+            }
+          }
+        })
+
+        if (!user) {
           router.push('/login')
           return
         }
@@ -43,7 +53,13 @@ export function ProtectedRoute({ children, requiresFarm = false }: ProtectedRout
         }
       } catch (err) {
         console.error('Auth check error:', err)
-        router.push('/login')
+        const error = err instanceof Error ? err : new Error(String(err))
+
+        if (isAuthError(error)) {
+          router.push('/login?message=Your session has expired. Please log in again.')
+        } else {
+          router.push('/login')
+        }
       } finally {
         setIsLoading(false)
       }
@@ -54,7 +70,14 @@ export function ProtectedRoute({ children, requiresFarm = false }: ProtectedRout
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' || !session) {
-        router.push('/login')
+        console.log('Auth state changed to signed out, redirecting...')
+        router.push('/login?message=You have been signed out.')
+      }
+
+      // Handle token refresh failures
+      if (event === 'TOKEN_REFRESHED' && !session) {
+        console.warn('Token refresh failed in protected route')
+        router.push('/login?message=Your session has expired. Please log in again.')
       }
     })
 

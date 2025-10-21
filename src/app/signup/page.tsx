@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
@@ -12,7 +12,7 @@ import { RedirectIfAuthenticated } from '@/components/auth/redirect-if-authentic
 import { Badge } from '@/components/ui/badge'
 import { Check } from 'lucide-react'
 
-export default function SignupPage() {
+function SignupForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
@@ -207,9 +207,8 @@ export default function SignupPage() {
   }
 
   return (
-    <RedirectIfAuthenticated>
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900">
-        <div className="w-full max-w-md px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900">
+      <div className="w-full max-w-md px-4">
         <Card>
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold">Konto erstellen</CardTitle>
@@ -592,8 +591,27 @@ export default function SignupPage() {
             </CardFooter>
           </form>
         </Card>
-        </div>
       </div>
+    </div>
+  )
+}
+
+export default function SignupPage() {
+  return (
+    <RedirectIfAuthenticated>
+      <Suspense fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-neutral-50 to-neutral-100 dark:from-neutral-950 dark:to-neutral-900">
+          <div className="w-full max-w-md px-4">
+            <Card>
+              <CardContent className="p-6">
+                <div className="text-center">Lädt...</div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      }>
+        <SignupForm />
+      </Suspense>
     </RedirectIfAuthenticated>
   )
 }

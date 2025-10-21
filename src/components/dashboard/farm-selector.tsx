@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
 import { CreateFarmDialog } from '@/components/farms/create-farm-dialog'
 import { useFarmStore } from '@/lib/stores/farm-store'
+import { safeGetUser } from '@/lib/auth-error-handler'
 
 interface Farm {
   id: string
@@ -31,7 +32,8 @@ export function FarmSelector() {
   const { currentFarmId, setCurrentFarmId } = useFarmStore()
 
   const loadFarms = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser()
+    // Use safe getUser with auto-redirect on auth errors
+    const user = await safeGetUser({ redirectOnError: true })
     if (!user) {
       setLoading(false)
       return

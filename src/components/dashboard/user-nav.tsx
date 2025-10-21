@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { useSubscription } from '@/lib/hooks/use-subscription'
 import Link from 'next/link'
+import { safeGetUser } from '@/lib/auth-error-handler'
 
 export function UserNav() {
   const router = useRouter()
@@ -27,7 +28,8 @@ export function UserNav() {
 
   useEffect(() => {
     const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser()
+      // Use safe getUser with auto-redirect on auth errors
+      const user = await safeGetUser({ redirectOnError: true })
       setUser(user)
     }
     getUser()
