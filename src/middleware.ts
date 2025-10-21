@@ -94,7 +94,7 @@ export async function middleware(request: NextRequest) {
       .from('users')
       .select('user_type')
       .eq('id', user.id)
-      .single()
+      .maybeSingle()
 
     const userType = userData?.user_type || 'member'
 
@@ -103,7 +103,7 @@ export async function middleware(request: NextRequest) {
       .select('farm_id')
       .eq('user_id', user.id)
       .limit(1)
-      .single()
+      .maybeSingle()
 
     const hasFarm = !!farmData
 
@@ -113,7 +113,7 @@ export async function middleware(request: NextRequest) {
       .eq('user_id', user.id)
       .in('status', ['active', 'trialing'])
       .limit(1)
-      .single()
+      .maybeSingle()
 
     const hasSubscription = !!subData
 
@@ -171,7 +171,7 @@ export async function middleware(request: NextRequest) {
       .from('users')
       .select('user_type')
       .eq('id', user.id)
-      .single()
+      .maybeSingle()
 
     const userType = userData?.user_type || 'member'
 
@@ -180,7 +180,7 @@ export async function middleware(request: NextRequest) {
       .select('farm_id')
       .eq('user_id', user.id)
       .limit(1)
-      .single()
+      .maybeSingle()
 
     const hasFarm = !!farmData
 
@@ -190,7 +190,7 @@ export async function middleware(request: NextRequest) {
       .eq('user_id', user.id)
       .in('status', ['active', 'trialing'])
       .limit(1)
-      .single()
+      .maybeSingle()
 
     const hasSubscription = !!subData
 
