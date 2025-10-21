@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Plus, Users } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { createFarm } from '@/lib/services/farm-service'
+import { createFarmAction } from '@/app/actions/farm-actions'
 
 export default function SetupPage() {
   const [isCreating, setIsCreating] = useState(false)
@@ -20,7 +20,7 @@ export default function SetupPage() {
   const handleCreateFarm = async () => {
     setIsCreating(true)
 
-    const result = await createFarm({
+    const result = await createFarmAction({
       name: farmName,
       description: farmDescription
     })

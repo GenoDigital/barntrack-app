@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useSubscription } from '@/lib/hooks/use-subscription'
-import { createFarm } from '@/lib/services/farm-service'
+import { createFarmAction } from '@/app/actions/farm-actions'
 import { Crown } from 'lucide-react'
 import Link from 'next/link'
 
@@ -46,8 +46,8 @@ export function CreateFarmDialog({ open, onOpenChange, onSuccess }: CreateFarmDi
     setLoading(true)
     setError(null)
 
-    // Use the shared farm service for creation
-    const result = await createFarm({
+    // Use the server action for creation (secure, server-side validation)
+    const result = await createFarmAction({
       name,
       description
     })
