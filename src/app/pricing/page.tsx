@@ -13,14 +13,12 @@ import { createClient } from '@/lib/supabase/client'
 import { matchPriceToConfig } from '@/lib/utils/price-formatting'
 import { planConfigs } from '@/lib/config/plan-configs'
 
-interface StripePriceWithSort {
+interface StripePrice {
   price_id: string
   product_id: string
-  product_name: string
   unit_amount: number
   currency: string
   recurring_interval: string
-  sort_order: number
 }
 
 interface PlanConfiguration {
@@ -57,7 +55,7 @@ export default function PricingPage() {
     try {
       // Fetch prices from Stripe
       const { data: pricesData, error: pricesError } = await supabase.rpc('get_stripe_prices_from_wrapper') as {
-        data: StripePriceWithSort[] | null,
+        data: StripePrice[] | null,
         error: Error | null
       }
 
