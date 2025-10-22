@@ -214,64 +214,8 @@ export default function AbonnementPage() {
 
         {/* Overview Tab */}
         <TabsContent value="overview" className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2">
-            {/* Current Subscription Status */}
-            <SubscriptionStatus />
-            
-            {/* Quick Actions */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Schnellaktionen</CardTitle>
-                <CardDescription>
-                  Häufig verwendete Aktionen für Ihr Abonnement
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button asChild variant="outline" className="w-full justify-start">
-                  <Link href="/dashboard/pricing">
-                    <Crown className="mr-2 h-4 w-4" />
-                    Plan wechseln
-                  </Link>
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start"
-                  onClick={() => {
-                    const tabs = document.querySelector('[data-state="active"]')?.parentElement
-                    const accountTab = tabs?.querySelector('[value="account"]') as HTMLElement
-                    accountTab?.click()
-                  }}
-                >
-                  <User className="mr-2 h-4 w-4" />
-                  Kontoinformationen bearbeiten
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start"
-                  onClick={() => {
-                    const tabs = document.querySelector('[data-state="active"]')?.parentElement
-                    const paymentTab = tabs?.querySelector('[value="payment-methods"]') as HTMLElement
-                    paymentTab?.click()
-                  }}
-                >
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  Zahlungsmethoden verwalten
-                </Button>
-                <Button 
-                  variant="outline" 
-                  className="w-full justify-start"
-                  onClick={() => {
-                    const tabs = document.querySelector('[data-state="active"]')?.parentElement
-                    const invoiceTab = tabs?.querySelector('[value="invoices"]') as HTMLElement
-                    invoiceTab?.click()
-                  }}
-                >
-                  <Receipt className="mr-2 h-4 w-4" />
-                  Rechnungen anzeigen
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
+          {/* Current Subscription Status */}
+          <SubscriptionStatus />
 
           {/* Subscription Summary */}
           {subscription && (
