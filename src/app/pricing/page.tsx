@@ -90,7 +90,9 @@ export default function PricingPage() {
             return null
           }
 
-          const frontendConfig = planConfigs[planConfig.plan_name] || planConfigs[planConfig.plan_name.toLowerCase()]
+          // Capitalize plan name to match planConfigs keys (e.g., 'starter' -> 'Starter')
+          const capitalizedPlanName = planConfig.plan_name.charAt(0).toUpperCase() + planConfig.plan_name.slice(1).toLowerCase()
+          const frontendConfig = planConfigs[capitalizedPlanName] || planConfigs[planConfig.plan_name]
           if (!frontendConfig) {
             console.warn(`No frontend config found for plan: ${planConfig.plan_name}`)
             return null
