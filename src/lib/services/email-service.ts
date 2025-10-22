@@ -24,23 +24,30 @@ export async function sendInvitationEmail(params: {
   try {
     const supabase = await createClient()
 
+    const requestBody = {
+      email: params.to,
+      recipientName: params.recipientName,
+      inviterName: params.inviterName,
+      farmName: params.farmName,
+      invitationCode: params.invitationToken, // Send as code, not link parameter
+      signupLink, // Separate signup link without code
+    }
+
+    console.log('Invoking Edge Function with body:', JSON.stringify(requestBody))
+
     const { data, error } = await supabase.functions.invoke('send-invitation-email', {
-      body: {
-        email: params.to,
-        recipientName: params.recipientName,
-        inviterName: params.inviterName,
-        farmName: params.farmName,
-        invitationCode: params.invitationToken, // Send as code, not link parameter
-        signupLink, // Separate signup link without code
-      },
+      body: requestBody,
     })
 
     if (error) {
+      console.error('Edge Function error:', error)
       return { success: false, error }
     }
 
+    console.log('Edge Function response:', data)
     return { success: true, messageId: data?.emailId }
   } catch (error) {
+    console.error('Exception in sendInvitationEmail:', error)
     return { success: false, error }
   }
 }
