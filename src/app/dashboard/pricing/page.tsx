@@ -114,11 +114,15 @@ export default function PricingPage() {
             badge: frontendConfig.badge,
             features: frontendConfig.features,
             icon: frontendConfig.icon,
-            popular: frontendConfig.popular || false
+            popular: frontendConfig.popular || false,
+            sortOrder: planConfig.sort_order
           }
         }).filter((plan): plan is NonNullable<typeof plan> => plan !== null)
 
-        setPlans(matchedPlans)
+        // Sort by sort_order from plan_configurations (Starter=1, Professional=2, Enterprise=3)
+        const sortedPlans = matchedPlans.sort((a, b) => a.sortOrder - b.sortOrder)
+
+        setPlans(sortedPlans)
       }
     } catch (error) {
       console.error('Error calling price function:', error)

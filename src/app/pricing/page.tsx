@@ -41,6 +41,7 @@ interface PlanWithConfig {
   features: string[]
   icon: React.ComponentType<{ className?: string }>
   popular: boolean
+  sortOrder?: number
 }
 
 export default function PricingPage() {
@@ -107,11 +108,15 @@ export default function PricingPage() {
             badge: frontendConfig.badge,
             features: frontendConfig.features,
             icon: frontendConfig.icon,
-            popular: frontendConfig.popular || false
+            popular: frontendConfig.popular || false,
+            sortOrder: planConfig.sort_order
           }
         }).filter((plan): plan is NonNullable<typeof plan> => plan !== null)
 
-        setPlans(matchedPlans as PlanWithConfig[])
+        // Sort by sort_order from plan_configurations (Starter=1, Professional=2, Enterprise=3)
+        const sortedPlans = matchedPlans.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+
+        setPlans(sortedPlans as PlanWithConfig[])
       }
     } catch (error) {
       console.error('Error calling price function:', error)
