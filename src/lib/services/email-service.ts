@@ -5,7 +5,7 @@
  * For auth emails (signup, password reset), Supabase handles those automatically
  */
 
-import { createClient } from '@/lib/supabase/client'
+import { createClient } from '@/lib/supabase/server'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
 
@@ -22,7 +22,7 @@ export async function sendInvitationEmail(params: {
   const signupLink = `${APP_URL}/signup?member=true&email=${encodeURIComponent(params.to)}`
 
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
 
     const { data, error } = await supabase.functions.invoke('send-invitation-email', {
       body: {
@@ -57,7 +57,7 @@ export async function sendNotificationEmail(params: {
   actionLabel?: string
 }) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
 
     // Build the message with action button if provided
     let fullMessage = params.message
@@ -98,7 +98,7 @@ export async function sendWelcomeEmail(params: {
   farmName?: string
 }) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
 
     const { data, error } = await supabase.functions.invoke('send-welcome-email', {
       body: {
@@ -124,7 +124,7 @@ export async function sendWelcomeEmail(params: {
  */
 export async function sendTestEmail(to: string) {
   try {
-    const supabase = createClient()
+    const supabase = await createClient()
 
     const { data, error } = await supabase.functions.invoke('send-test-email', {
       body: {
