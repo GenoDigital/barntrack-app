@@ -13,6 +13,8 @@ interface Subscription {
   stripe_product_id: string | null
   stripe_price_id: string | null
   cancel_at_period_end?: boolean
+  canceled_at: string | null
+  ended_at: string | null
 }
 
 interface PlanConfiguration {

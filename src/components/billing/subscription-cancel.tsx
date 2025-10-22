@@ -74,7 +74,7 @@ export function SubscriptionCancel() {
 
   const handleReactivateSubscription = async () => {
     setReactivating(true)
-    
+
     try {
       const { data, error } = await supabase.rpc('reactivate_user_subscription')
 
@@ -97,6 +97,44 @@ export function SubscriptionCancel() {
     } finally {
       setReactivating(false)
     }
+  }
+
+  const handleRecreateCanceledSubscription = async () => {
+    setReactivating(true)
+
+    try {
+      const { data, error } = await supabase.rpc('recreate_canceled_subscription')
+
+      if (error) {
+        console.error('Error recreating subscription:', error)
+        toast.error('Fehler beim Reaktivieren des Abonnements')
+        return
+      }
+
+      if (data?.success) {
+        toast.success('Abonnement wurde erfolgreich reaktiviert')
+        // Refresh subscription data
+        if (refetch) refetch()
+      } else {
+        if (data?.reason === 'canceled_too_long_ago') {
+          toast.error('Abonnement kann nicht reaktiviert werden. Bitte wählen Sie einen neuen Plan.')
+        } else {
+          toast.error(data?.error || 'Fehler beim Reaktivieren des Abonnements')
+        }
+      }
+    } catch (err) {
+      console.error('Error calling recreate function:', err)
+      toast.error('Fehler beim Reaktivieren des Abonnements')
+    } finally {
+      setReactivating(false)
+    }
+  }
+
+  const canReactivate = (): boolean => {
+    if (!subscription?.canceled_at) return false
+    const canceledDate = new Date(subscription.canceled_at)
+    const daysSinceCanceled = (Date.now() - canceledDate.getTime()) / (1000 * 60 * 60 * 24)
+    return daysSinceCanceled <= 30
   }
 
   const isSubscriptionCanceledAtPeriodEnd = () => {
@@ -321,12 +359,48 @@ export function SubscriptionCancel() {
           <div className="text-center py-6">
             <XCircle className="mx-auto h-12 w-12 text-red-500 mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Abonnement gekündigt</h3>
-            <p className="text-gray-600 mb-4">
-              Ihr Abonnement wurde gekündigt. Sie können jederzeit ein neues Abonnement abschließen.
+            <p className="text-gray-600 mb-2">
+              Ihr Abonnement wurde am {subscription.canceled_at && formatDate(subscription.canceled_at)} gekündigt.
             </p>
-            <Button variant="outline" asChild>
-              <a href="/pricing">Neues Abonnement wählen</a>
-            </Button>
+
+            {canReactivate() ? (
+              <div className="space-y-3 mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Sie können Ihr Abonnement innerhalb von 30 Tagen mit demselben Plan reaktivieren.
+                </p>
+                <Button
+                  onClick={handleRecreateCanceledSubscription}
+                  disabled={reactivating}
+                  className="min-w-[200px]"
+                >
+                  {reactivating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Wird reaktiviert...
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Abonnement reaktivieren
+                    </>
+                  )}
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Reaktivierung möglich bis: {subscription.canceled_at && formatDate(
+                    new Date(new Date(subscription.canceled_at).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString()
+                  )}
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4">
+                <p className="text-sm text-muted-foreground mb-3">
+                  Die Reaktivierungsfrist (30 Tage) ist abgelaufen. Bitte wählen Sie einen neuen Plan.
+                </p>
+                <Button variant="outline" asChild>
+                  <a href="/dashboard/pricing">Neues Abonnement wählen</a>
+                </Button>
+              </div>
+            )}
           </div>
         )}
 

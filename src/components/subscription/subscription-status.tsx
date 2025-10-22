@@ -7,12 +7,14 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { useSubscription } from '@/lib/hooks/use-subscription'
-import { Crown, Calendar, Users, Building, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Crown, Calendar, Users, Building, CheckCircle, AlertTriangle, XCircle, RefreshCw, Loader2 } from 'lucide-react'
 import Link from 'next/link'
+import { toast } from 'sonner'
 
 export function SubscriptionStatus() {
-  const { subscription, loading, getPlanLimits, getPlanName } = useSubscription()
+  const { subscription, loading, getPlanLimits, getPlanName, refetch } = useSubscription()
   const [farmCount, setFarmCount] = useState(0)
+  const [reactivating, setReactivating] = useState(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -63,6 +65,50 @@ export function SubscriptionStatus() {
     return current >= max * 0.8 // 80% threshold
   }
 
+  const canReactivate = (): boolean => {
+    if (!subscription?.canceled_at) return false
+    const canceledDate = new Date(subscription.canceled_at)
+    const daysSinceCanceled = (Date.now() - canceledDate.getTime()) / (1000 * 60 * 60 * 24)
+    return daysSinceCanceled <= 30
+  }
+
+  const handleReactivateCanceled = async () => {
+    setReactivating(true)
+    try {
+      const { data, error } = await supabase.rpc('recreate_canceled_subscription')
+
+      if (error) {
+        console.error('Error reactivating subscription:', error)
+        toast.error('Fehler beim Reaktivieren des Abonnements')
+        return
+      }
+
+      if (data?.success) {
+        toast.success('Abonnement wurde erfolgreich reaktiviert')
+        if (refetch) refetch()
+      } else {
+        if (data?.reason === 'canceled_too_long_ago') {
+          toast.error('Abonnement kann nicht reaktiviert werden. Bitte wählen Sie einen neuen Plan.')
+        } else {
+          toast.error(data?.error || 'Fehler beim Reaktivieren des Abonnements')
+        }
+      }
+    } catch (err) {
+      console.error('Error calling recreate function:', err)
+      toast.error('Fehler beim Reaktivieren des Abonnements')
+    } finally {
+      setReactivating(false)
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('de-DE', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })
+  }
+
   if (loading) {
     return (
       <Card>
@@ -80,6 +126,57 @@ export function SubscriptionStatus() {
 
   return (
     <>
+      {/* Canceled Subscription Alert */}
+      {subscription?.status === 'canceled' && (
+        <Alert variant="destructive" className="mb-4">
+          <XCircle className="h-4 w-4" />
+          <AlertDescription>
+            <div className="space-y-3">
+              <div>
+                <p className="font-medium">Ihr Abonnement wurde gekündigt</p>
+                <p className="text-sm mt-1">
+                  Gekündigt am: {subscription.canceled_at && formatDate(subscription.canceled_at)}
+                </p>
+              </div>
+              {canReactivate() ? (
+                <div className="space-y-2">
+                  <p className="text-sm">
+                    Sie können Ihr Abonnement innerhalb von 30 Tagen reaktivieren und mit demselben Plan fortfahren.
+                  </p>
+                  <Button
+                    onClick={handleReactivateCanceled}
+                    disabled={reactivating}
+                    size="sm"
+                    variant="secondary"
+                  >
+                    {reactivating ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Wird reaktiviert...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Abonnement reaktivieren
+                      </>
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div>
+                  <p className="text-sm mb-2">
+                    Die Reaktivierungsfrist ist abgelaufen. Bitte wählen Sie einen neuen Plan.
+                  </p>
+                  <Button asChild size="sm" variant="secondary">
+                    <Link href="/dashboard/pricing">Neuen Plan wählen</Link>
+                  </Button>
+                </div>
+              )}
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
