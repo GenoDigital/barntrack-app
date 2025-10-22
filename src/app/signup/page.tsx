@@ -44,15 +44,14 @@ function SignupForm() {
   const searchParams = useSearchParams()
   const supabase = createClient()
 
-  // Read invitation token from URL on mount
+  // Read member mode from URL on mount
   useEffect(() => {
-    const invitationParam = searchParams.get('invitation')
+    const memberParam = searchParams.get('member')
     const emailParam = searchParams.get('email')
 
-    if (invitationParam) {
-      setInvitationToken(invitationParam)
+    // Check if this is a member signup (invited user)
+    if (memberParam === 'true') {
       setIsInviteMode(true)
-      setTokenFromUrl(true)
     }
 
     if (emailParam) {
@@ -117,28 +116,13 @@ function SignupForm() {
 
     try {
       if (isInviteMode) {
-        // Invitation-based signup
-        const { data: invitation, error: inviteError } = await supabase
-          .from('invitations')
-          .select('*')
-          .eq('token', invitationToken)
-          .eq('email', email)
-          .gt('expires_at', new Date().toISOString())
-          .is('used_at', null)
-          .single()
-
-        if (inviteError || !invitation) {
-          setError('Ungültiger oder abgelaufener Einladungstoken')
-          setLoading(false)
-          return
-        }
-
-        // Proceed with signup
+        // Member signup (invited user)
+        // User will enter their invitation code after email verification
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/accept-invitation?token=${invitationToken}`,
+            emailRedirectTo: `${window.location.origin}/login`,
             data: {
               display_name: displayName,
               signup_source: 'invitation',  // Invitation signups are always members
@@ -156,10 +140,7 @@ function SignupForm() {
         }
 
         // User record is automatically created by database trigger
-        // No need to manually insert into users table
-
-        // Note: Invitation will be marked as used by process_invitation function
-        // after email verification is complete
+        // User will redeem invitation code after logging in
       } else {
         // Direct signup (for farm owners) - secure approach
         const autoDisplayName = displayName || `${firstName} ${lastName}`.trim()

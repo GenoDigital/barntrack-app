@@ -71,17 +71,20 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Protect dashboard, onboarding, checkout, and accept-invitation routes
+  // Protect dashboard, onboarding, checkout, redeem-invitation, and accept-invitation routes
   if (request.nextUrl.pathname.startsWith('/dashboard') ||
       request.nextUrl.pathname.startsWith('/onboarding') ||
       request.nextUrl.pathname.startsWith('/checkout') ||
+      request.nextUrl.pathname.startsWith('/redeem-invitation') ||
       request.nextUrl.pathname.startsWith('/accept-invitation')) {
     if (!user) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
 
-    // Allow accept-invitation page without additional checks (it handles its own logic)
-    if (request.nextUrl.pathname.startsWith('/accept-invitation')) {
+    // Allow redeem-invitation and accept-invitation pages without additional checks
+    // These pages handle their own logic for validating invitation codes
+    if (request.nextUrl.pathname.startsWith('/redeem-invitation') ||
+        request.nextUrl.pathname.startsWith('/accept-invitation')) {
       return response
     }
 
@@ -140,15 +143,14 @@ export async function middleware(request: NextRequest) {
     } else {
       // Members (invited users) - don't need subscription
       if (!hasFarm) {
-        // Member without farm - should accept invitation
+        // Member without farm - redirect to redeem invitation page
         // Block access to onboarding (that's for owners only)
         if (request.nextUrl.pathname.startsWith('/onboarding')) {
-          return NextResponse.redirect(new URL('/login?message=Please check your invitation email to join your farm.', request.url))
+          return NextResponse.redirect(new URL('/redeem-invitation', request.url))
         }
-        // Block dashboard access until they accept invitation
-        if (request.nextUrl.pathname.startsWith('/dashboard') &&
-            !request.nextUrl.pathname.startsWith('/accept-invitation')) {
-          return NextResponse.redirect(new URL('/login?message=Please check your invitation email to join your farm.', request.url))
+        // Block dashboard access until they redeem their invitation code
+        if (request.nextUrl.pathname.startsWith('/dashboard')) {
+          return NextResponse.redirect(new URL('/redeem-invitation', request.url))
         }
       } else {
         // Member with farm - allow dashboard access, block onboarding

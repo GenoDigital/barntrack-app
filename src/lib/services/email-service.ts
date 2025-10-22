@@ -19,7 +19,7 @@ export async function sendInvitationEmail(params: {
   farmName: string
   invitationToken: string
 }) {
-  const invitationLink = `${APP_URL}/signup?invitation=${params.invitationToken}&email=${encodeURIComponent(params.to)}`
+  const signupLink = `${APP_URL}/signup?member=true&email=${encodeURIComponent(params.to)}`
 
   try {
     const supabase = createClient()
@@ -30,7 +30,8 @@ export async function sendInvitationEmail(params: {
         recipientName: params.recipientName,
         inviterName: params.inviterName,
         farmName: params.farmName,
-        invitationLink,
+        invitationCode: params.invitationToken, // Send as code, not link parameter
+        signupLink, // Separate signup link without code
       },
     })
 
