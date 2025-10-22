@@ -12,13 +12,15 @@ import { toast } from 'sonner'
 import { matchPriceToConfig, type PlanConfig } from '@/lib/utils/price-formatting'
 import { planConfigs } from '@/lib/config/plan-configs'
 
-// Stripe price from FDW wrapper
-interface StripePrice {
+// Stripe price from HTTP API
+interface StripePriceWithSort {
   price_id: string
   product_id: string
+  product_name: string
   unit_amount: number
   currency: string
   recurring_interval: string
+  sort_order: number
 }
 
 // Plan configuration from database
@@ -62,7 +64,7 @@ export default function PricingPage() {
     setLoadingPrices(true)
     try {
       // Fetch prices from Stripe
-      const { data: pricesData, error: pricesError } = await supabase.rpc('get_stripe_prices_from_wrapper') as { data: StripePrice[] | null, error: Error | null }
+      const { data: pricesData, error: pricesError } = await supabase.rpc('get_stripe_prices_for_products') as { data: StripePriceWithSort[] | null, error: Error | null }
 
       if (pricesError) {
         console.error('Error fetching prices:', pricesError)
