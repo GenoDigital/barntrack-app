@@ -16,15 +16,12 @@ function SignupForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [displayName, setDisplayName] = useState('')
-  const [invitationToken, setInvitationToken] = useState('')
   const [isInviteMode, setIsInviteMode] = useState(true)
   const [selectedPlan, setSelectedPlan] = useState('starter')
   const [voucherCode, setVoucherCode] = useState('')
   const [isTrialMode, setIsTrialMode] = useState(true)
   const [plans, setPlans] = useState<any[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
-  const [stripePrices, setStripePrices] = useState<any[]>([])
-  const [tokenFromUrl, setTokenFromUrl] = useState(false)
 
   // Additional fields for farm owners
   const [firstName, setFirstName] = useState('')
@@ -207,8 +204,8 @@ function SignupForm() {
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold">Konto erstellen</CardTitle>
             <CardDescription>
-              {isInviteMode 
-                ? 'Verwenden Sie Ihren Einladungstoken' 
+              {isInviteMode
+                ? 'Registrieren Sie sich als Mitglied - Ihren Einladungscode geben Sie nach der E-Mail-Bestätigung ein'
                 : 'Erstellen Sie ein neues Konto als Stallbesitzer'
               }
             </CardDescription>
@@ -221,7 +218,6 @@ function SignupForm() {
                   variant={isInviteMode ? "default" : "outline"}
                   onClick={() => setIsInviteMode(true)}
                   className="flex-1"
-                  disabled={tokenFromUrl}
                 >
                   Mit Einladung
                 </Button>
@@ -230,37 +226,15 @@ function SignupForm() {
                   variant={!isInviteMode ? "default" : "outline"}
                   onClick={() => setIsInviteMode(false)}
                   className="flex-1"
-                  disabled={tokenFromUrl}
                 >
                   Stallbesitzer
                 </Button>
               </div>
-              {tokenFromUrl && (
+              {isInviteMode && (
                 <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
                   <p className="text-sm text-blue-900 dark:text-blue-100">
-                    Sie wurden eingeladen, einem Betrieb beizutreten. Bitte füllen Sie die Felder unten aus, um Ihr Konto zu erstellen.
+                    ℹ️ Nach der Registrierung und E-Mail-Bestätigung werden Sie aufgefordert, Ihren Einladungscode einzugeben.
                   </p>
-                </div>
-              )}
-              {isInviteMode && (
-                <div className="space-y-2">
-                  <Label htmlFor="invitationToken">Einladungstoken</Label>
-                  <Input
-                    id="invitationToken"
-                    type="text"
-                    placeholder="Ihr Einladungstoken"
-                    value={invitationToken}
-                    onChange={(e) => setInvitationToken(e.target.value)}
-                    required
-                    disabled={loading}
-                    readOnly={tokenFromUrl}
-                    className={tokenFromUrl ? 'bg-muted' : ''}
-                  />
-                  {tokenFromUrl && (
-                    <p className="text-xs text-muted-foreground">
-                      ✓ Einladungstoken wurde automatisch aus dem Link übernommen
-                    </p>
-                  )}
                 </div>
               )}
               
@@ -535,14 +509,7 @@ function SignupForm() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   disabled={loading}
-                  readOnly={tokenFromUrl && email !== ''}
-                  className={tokenFromUrl && email !== '' ? 'bg-muted' : ''}
                 />
-                {tokenFromUrl && email && (
-                  <p className="text-xs text-muted-foreground">
-                    Diese Einladung ist für diese E-Mail-Adresse bestimmt
-                  </p>
-                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="password">Passwort</Label>

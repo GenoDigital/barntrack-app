@@ -6,7 +6,7 @@ import { SubscriptionCard } from '@/components/pricing/subscription-card'
 import { TrialStatus } from '@/components/pricing/trial-status'
 import { useSubscription } from '@/lib/hooks/use-subscription'
 import { useAuth } from '@/lib/hooks/use-auth'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { matchPriceToConfig, type PlanConfig } from '@/lib/utils/price-formatting'
@@ -35,18 +35,20 @@ export default function PricingPage() {
   const { subscription, loading, refetch } = useSubscription()
   const { user } = useAuth()
   const supabase = createClient()
-  
+  const hasSyncedRef = useRef(false)
+
   // Fetch prices from Stripe on component mount
   useEffect(() => {
     fetchPricesFromStripe()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  
-  // Sync subscription status from Stripe on page load (only once when user loads)
+
+  // Sync subscription status from Stripe on page load (only once)
   useEffect(() => {
-    if (user && !loading && !syncing) {
+    if (user && !loading && !hasSyncedRef.current) {
+      hasSyncedRef.current = true
       syncFromStripe()
     }
-  }, [user, loading, syncing]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, loading]) // eslint-disable-line react-hooks/exhaustive-deps
   
   const fetchPricesFromStripe = async () => {
     setLoadingPrices(true)
