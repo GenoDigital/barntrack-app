@@ -32,6 +32,7 @@ export function formatPeriod(interval: string): string {
 
 export interface StripePrice {
   price_id: string
+  product_id: string
   product_name: string
   unit_amount: number
   currency: string

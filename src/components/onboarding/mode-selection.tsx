@@ -1,5 +1,7 @@
 'use client'
 
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 
@@ -8,6 +10,36 @@ interface ModeSelectionProps {
 }
 
 export function ModeSelection({ onSelect }: ModeSelectionProps) {
+  const [lowestPrice, setLowestPrice] = useState<number | null>(null)
+  const supabase = createClient()
+
+  useEffect(() => {
+    fetchLowestPrice()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const fetchLowestPrice = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('plan_configurations')
+        .select('yearly_price_cents')
+        .eq('is_active', true)
+        .order('yearly_price_cents', { ascending: true })
+        .limit(1)
+        .single()
+
+      if (error) {
+        console.error('Error fetching price:', error)
+        return
+      }
+
+      if (data?.yearly_price_cents) {
+        setLowestPrice(data.yearly_price_cents)
+      }
+    } catch (err) {
+      console.error('Error loading price:', err)
+    }
+  }
+
   return (
     <Card className="max-w-4xl mx-auto">
       <CardHeader className="text-center">
@@ -112,8 +144,16 @@ export function ModeSelection({ onSelect }: ModeSelectionProps) {
               </div>
 
               <div className="text-center">
-                <div className="text-2xl font-bold mb-2">Ab €25/Monat</div>
-                <div className="text-sm text-muted-foreground mb-4">flexibel skalierbar</div>
+                {lowestPrice !== null ? (
+                  <>
+                    <div className="text-2xl font-bold mb-1">Ab €{(lowestPrice / 100).toFixed(0)}/Jahr</div>
+                    <div className="text-xs text-muted-foreground mb-4">
+                      ca. €{(lowestPrice / 100 / 12).toFixed(2)}/Monat
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-2xl font-bold mb-2">Pläne verfügbar</div>
+                )}
                 <Button size="lg" className="w-full" onClick={(e) => {
                   e.stopPropagation()
                   onSelect('paid')

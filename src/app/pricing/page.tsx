@@ -15,10 +15,19 @@ import { planConfigs } from '@/lib/config/plan-configs'
 
 interface StripePriceWithSort {
   price_id: string
+  product_id: string
   product_name: string
   unit_amount: number
   currency: string
   recurring_interval: string
+  sort_order: number
+}
+
+interface PlanConfiguration {
+  plan_name: string
+  display_name: string
+  description: string
+  stripe_product_id: string
   sort_order: number
 }
 
@@ -46,23 +55,60 @@ export default function PricingPage() {
   const fetchPricesFromStripe = async () => {
     setLoadingPrices(true)
     try {
-      const { data, error } = await supabase.rpc('get_stripe_prices_for_products') as {
+      // Fetch prices from Stripe
+      const { data: pricesData, error: pricesError } = await supabase.rpc('get_stripe_prices_for_products') as {
         data: StripePriceWithSort[] | null,
         error: Error | null
       }
 
-      if (error) {
-        console.error('Error fetching prices:', error)
+      if (pricesError) {
+        console.error('Error fetching prices:', pricesError)
         return
       }
 
-      if (data) {
-        // Sort by sort_order and filter for yearly prices only
-        const sortedData = data.sort((a, b) => a.sort_order - b.sort_order)
-        const yearlyPrices = sortedData.filter(price => price.recurring_interval === 'year')
-        const matchedPlans = matchPriceToConfig(yearlyPrices, planConfigs).filter(
-          (plan): plan is NonNullable<typeof plan> => plan !== null
-        )
+      // Fetch plan configurations from database
+      const { data: planConfigsData, error: planConfigsError } = await supabase
+        .from('plan_configurations')
+        .select('plan_name, display_name, description, stripe_product_id, sort_order')
+        .eq('is_active', true)
+        .order('sort_order')
+
+      if (planConfigsError) {
+        console.error('Error fetching plan configurations:', planConfigsError)
+        return
+      }
+
+      if (pricesData && planConfigsData) {
+        // Filter for yearly prices only
+        const yearlyPrices = pricesData.filter(price => price.recurring_interval === 'year')
+
+        // Match prices with plan configurations by product_id
+        const matchedPlans = yearlyPrices.map(price => {
+          const planConfig = planConfigsData.find(pc => pc.stripe_product_id === price.product_id)
+          if (!planConfig) {
+            console.warn(`No configuration found for product ID: ${price.product_id}`)
+            return null
+          }
+
+          const frontendConfig = planConfigs[planConfig.plan_name] || planConfigs[planConfig.plan_name.toLowerCase()]
+          if (!frontendConfig) {
+            console.warn(`No frontend config found for plan: ${planConfig.plan_name}`)
+            return null
+          }
+
+          return {
+            name: planConfig.display_name,
+            price: `€${(price.unit_amount / 100).toFixed(0)}`,
+            period: '/Jahr',
+            priceId: price.price_id,
+            description: frontendConfig.description,
+            badge: frontendConfig.badge,
+            features: frontendConfig.features,
+            icon: frontendConfig.icon,
+            popular: frontendConfig.popular || false
+          }
+        }).filter((plan): plan is NonNullable<typeof plan> => plan !== null)
+
         setPlans(matchedPlans as PlanWithConfig[])
       }
     } catch (error) {
