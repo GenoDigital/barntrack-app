@@ -56,7 +56,7 @@ export default function PricingPage() {
     setLoadingPrices(true)
     try {
       // Fetch prices from Stripe
-      const { data: pricesData, error: pricesError } = await supabase.rpc('get_stripe_prices_for_products') as {
+      const { data: pricesData, error: pricesError } = await supabase.rpc('get_stripe_prices_from_wrapper') as {
         data: StripePriceWithSort[] | null,
         error: Error | null
       }
