@@ -132,13 +132,13 @@ export function PendingInvitationsTable({ onRefresh }: PendingInvitationsTablePr
   }
 
   const copyInvitationLink = async (invitation: Invitation) => {
-    const invitationUrl = `${window.location.origin}/signup?invitation=${invitation.token}&email=${encodeURIComponent(invitation.email)}`
-
+    // Copy the invitation code, not a link
+    // Users will receive the code via email and enter it on the redeem page
     try {
-      await navigator.clipboard.writeText(invitationUrl)
-      toast.success('Einladungslink kopiert')
+      await navigator.clipboard.writeText(invitation.token)
+      toast.success('Einladungscode kopiert')
     } catch {
-      toast.error('Fehler beim Kopieren des Links')
+      toast.error('Fehler beim Kopieren des Codes')
     }
   }
 
@@ -162,17 +162,18 @@ export function PendingInvitationsTable({ onRefresh }: PendingInvitationsTablePr
         .eq('id', currentFarmId)
         .single()
 
-      // Generate invitation link (same format as copyInvitationLink)
-      const invitationLink = `${window.location.origin}/signup?invitation=${invitation.token}&email=${encodeURIComponent(invitation.email)}`
+      // Generate signup link (new format with member=true, no token in URL)
+      const signupLink = `${window.location.origin}/signup?member=true&email=${encodeURIComponent(invitation.email)}`
 
-      // Call Edge Function to resend email
+      // Call Edge Function to resend email with correct field names
       const { error: emailError } = await supabase.functions.invoke('send-invitation-email', {
         body: {
           email: invitation.email,
+          recipientName: invitation.email.split('@')[0],
           inviterName: userData?.display_name || userData?.email || 'Ein Benutzer',
           farmName: farmData?.name || 'Unbekannter Betrieb',
-          invitationToken: invitation.token,
-          invitationLink: invitationLink
+          invitationCode: invitation.token,
+          signupLink: signupLink
         }
       })
 
@@ -277,7 +278,7 @@ export function PendingInvitationsTable({ onRefresh }: PendingInvitationsTablePr
                         size="icon"
                         onClick={() => copyInvitationLink(invitation)}
                         disabled={actionLoading === invitation.id}
-                        title="Link kopieren"
+                        title="Einladungscode kopieren"
                       >
                         <Copy className="h-4 w-4" />
                       </Button>

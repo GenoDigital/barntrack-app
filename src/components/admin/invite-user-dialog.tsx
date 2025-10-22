@@ -103,68 +103,41 @@ export function InviteUserDialog({ open, onOpenChange, onSuccess }: InviteUserDi
 
       // If user doesn't exist, create traditional invitation and send email
       if (inviteData?.error === 'No user found with this email address') {
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) {
-          setError('Nicht angemeldet')
-          return
-        }
-
-        // Get current farm details for the email
-        const { data: farmData } = await supabase
-          .from('farms')
-          .select('name')
-          .eq('id', currentFarmId)
-          .single()
-
-        // Get current user details for the email
-        const { data: userData } = await supabase
-          .from('users')
-          .select('display_name, email')
-          .eq('id', user.id)
-          .single()
-
-        const { data: tokenData, error: tokenError } = await supabase
-          .from('invitations')
-          .insert({
-            email,
-            invited_by: user.id,
-            farm_id: currentFarmId,
-          })
-          .select()
-          .single()
-
-        if (tokenError) {
-          setError(tokenError.message)
-        } else {
-          // Send invitation email
-          try {
-            const { data, error: emailError } = await supabase.functions.invoke('send-invitation-email', {
-              body: {
-                email,
-                inviterName: userData?.display_name || userData?.email || 'Ein Benutzer',
-                farmName: farmData?.name || 'Unbekannter Betrieb',
-                invitationToken: tokenData.token
-              }
+        // Use the centralized API route to create invitation and send email
+        // The API route handles auth check, farm details, and email sending
+        try {
+          const response = await fetch('/api/invitations/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email,
+              farmId: currentFarmId,
+              role: 'editor',
+              recipientName: email.split('@')[0]
             })
+          })
 
-            if (emailError) {
-              console.error('Error sending invitation email:', emailError)
-              // Don't fail the invitation process if email fails
-              setSuccess(`Einladung erstellt für ${email}. E-Mail konnte nicht versendet werden - bitte teilen Sie den Einladungslink manuell.`)
-            } else {
+          const result = await response.json()
+
+          if (!response.ok) {
+            setError(result.error || 'Fehler beim Senden der Einladung')
+          } else {
+            if (result.invitation?.email_sent) {
               setSuccess(`Einladungs-E-Mail an ${email} wurde versendet!`)
+            } else {
+              setSuccess(`Einladung erstellt für ${email}. E-Mail konnte nicht versendet werden - bitte teilen Sie den Einladungscode manuell.`)
             }
-          } catch (emailError) {
-            console.error('Error calling email function:', emailError)
-            setSuccess(`Einladung erstellt für ${email}. E-Mail konnte nicht versendet werden - bitte teilen Sie den Einladungslink manuell.`)
-          }
 
-          setEmail('')
-          setTimeout(() => {
-            onSuccess()
-            onOpenChange(false)
-            setSuccess(null)
-          }, 3000)
+            setEmail('')
+            setTimeout(() => {
+              onSuccess()
+              onOpenChange(false)
+              setSuccess(null)
+            }, 3000)
+          }
+        } catch (err) {
+          console.error('Error calling invitation API:', err)
+          setError('Fehler beim Erstellen der Einladung')
         }
       } else {
         setError(inviteData?.error || 'Fehler beim Hinzufügen des Benutzers')

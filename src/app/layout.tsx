@@ -6,6 +6,7 @@ import { RecaptchaProvider } from '@/components/providers/recaptcha-provider'
 import { CookieConsentProvider } from '@/contexts/cookie-consent-context'
 import { CookieBanner } from '@/components/cookie-banner'
 import { CookieSettingsDialog } from '@/components/cookie-settings-dialog'
+import { AuthErrorBoundary } from '@/components/auth/auth-error-boundary'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -74,14 +75,16 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <CookieConsentProvider>
-          <RecaptchaProvider>
-            {children}
-            <Toaster />
-            <CookieBanner />
-            <CookieSettingsDialog />
-          </RecaptchaProvider>
-        </CookieConsentProvider>
+        <AuthErrorBoundary>
+          <CookieConsentProvider>
+            <RecaptchaProvider>
+              {children}
+              <Toaster />
+              <CookieBanner />
+              <CookieSettingsDialog />
+            </RecaptchaProvider>
+          </CookieConsentProvider>
+        </AuthErrorBoundary>
       </body>
     </html>
   );
