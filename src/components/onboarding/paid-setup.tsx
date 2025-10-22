@@ -110,6 +110,11 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
 
       console.log('Subscription created:', subscriptionData)
 
+      // Check if the RPC function returned success: false
+      if (subscriptionData && !subscriptionData.success) {
+        throw new Error(subscriptionData.error || 'Fehler beim Erstellen des Abonnements')
+      }
+
       // Success! Proceed to farm setup
       onComplete()
 

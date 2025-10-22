@@ -71,6 +71,11 @@ export function TrialSetup({ onComplete }: TrialSetupProps) {
 
       console.log('Trial subscription created:', subscriptionData)
 
+      // Check if the RPC function returned success: false
+      if (subscriptionData && !subscriptionData.success) {
+        throw new Error(subscriptionData.error || 'Fehler beim Erstellen der Testversion')
+      }
+
       // Success!
       setStatus('success')
       setTimeout(() => {
