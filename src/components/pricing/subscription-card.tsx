@@ -61,7 +61,7 @@ export function SubscriptionCard({
       const { data, error } = await supabase.rpc('create_subscription_via_wrapper', {
         price_id: priceId,
         trial_days: 0,
-        promotion_code_param: promotionCode.trim() || null
+        coupon_id: promotionCode.trim() || null
       })
 
       if (error) {
