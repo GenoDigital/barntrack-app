@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Check, ArrowRight, Loader2, Tag } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '@/lib/hooks/use-auth'
 
 interface SubscriptionCardProps {
@@ -43,8 +43,65 @@ export function SubscriptionCard({
   const [promotionCode, setPromotionCode] = useState('')
   const [showPromotionInput, setShowPromotionInput] = useState(false)
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user } = useAuth()
   const supabase = createClient()
+
+  // Check if user returned from Stripe after adding payment method
+  useEffect(() => {
+    const paymentMethodAdded = searchParams.get('payment_method_added')
+    const pending = localStorage.getItem('pending_subscription')
+
+    if (paymentMethodAdded === 'true' && pending) {
+      try {
+        const { priceId: pendingPriceId, promotionCode: pendingPromoCode } = JSON.parse(pending)
+
+        // Only auto-create if this is the card for the pending subscription
+        if (pendingPriceId === priceId) {
+          localStorage.removeItem('pending_subscription')
+          setPromotionCode(pendingPromoCode || '')
+          // Auto-trigger subscription creation
+          createSubscriptionAfterPaymentAdded(pendingPriceId, pendingPromoCode)
+        }
+      } catch (err) {
+        console.error('Error parsing pending subscription:', err)
+        localStorage.removeItem('pending_subscription')
+      }
+    }
+  }, [searchParams, priceId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const createSubscriptionAfterPaymentAdded = async (pendingPriceId: string, pendingPromoCode: string) => {
+    setLoading(true)
+    setError(null)
+
+    try {
+      const { data, error } = await supabase.rpc('create_subscription_via_wrapper', {
+        price_id: pendingPriceId,
+        trial_days: 0,
+        coupon_id: pendingPromoCode || null
+      })
+
+      if (error) {
+        setError(error.message || 'Failed to create subscription')
+        return
+      }
+
+      if (data?.success) {
+        router.push('/dashboard?subscription_success=true')
+      } else {
+        const errorMsg = data?.error || 'Failed to create subscription'
+        const detailedError = data?.response?.error?.message || data?.details || ''
+        const fullError = detailedError ? `${errorMsg}: ${detailedError}` : errorMsg
+        console.error('Subscription creation failed:', data)
+        setError(fullError)
+      }
+    } catch (err) {
+      console.error('Error creating subscription:', err)
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSubscribe = async () => {
     if (!user) {
@@ -56,8 +113,39 @@ export function SubscriptionCard({
     setError(null)
 
     try {
-      // Use wrapper-based subscription creation with optional promotion code
-      // No trial days for regular plans - immediate yearly billing
+      // Check if user has a payment method on file
+      const { data: hasPaymentMethod, error: pmError } = await supabase.rpc('user_has_payment_method')
+
+      if (pmError) {
+        console.error('Error checking payment method:', pmError)
+        setError('Fehler beim Überprüfen der Zahlungsmethode')
+        setLoading(false)
+        return
+      }
+
+      if (!hasPaymentMethod) {
+        // No payment method - redirect to Stripe to add one
+        const { data: checkoutData, error: checkoutError } = await supabase.rpc('create_stripe_checkout_session_for_setup')
+
+        if (checkoutError || !checkoutData?.checkout_url) {
+          console.error('Error creating checkout session:', checkoutError)
+          setError('Fehler beim Erstellen der Checkout-Session')
+          setLoading(false)
+          return
+        }
+
+        // Store pending subscription info to complete after payment method is added
+        localStorage.setItem('pending_subscription', JSON.stringify({
+          priceId,
+          promotionCode: promotionCode.trim()
+        }))
+
+        // Redirect to Stripe to add payment method
+        window.location.href = checkoutData.checkout_url
+        return
+      }
+
+      // Has payment method - create subscription
       const { data, error } = await supabase.rpc('create_subscription_via_wrapper', {
         price_id: priceId,
         trial_days: 0,
