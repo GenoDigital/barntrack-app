@@ -77,7 +77,12 @@ export function SubscriptionCard({
         // Subscription created successfully via wrapper
         router.push('/dashboard?subscription_success=true')
       } else {
-        setError(data?.error || 'Failed to create subscription')
+        // Show detailed error including Stripe response
+        const errorMsg = data?.error || 'Failed to create subscription'
+        const detailedError = data?.response?.error?.message || data?.details || ''
+        const fullError = detailedError ? `${errorMsg}: ${detailedError}` : errorMsg
+        console.error('Subscription creation failed:', data)
+        setError(fullError)
       }
     } catch (err) {
       console.error('Error creating subscription:', err)
