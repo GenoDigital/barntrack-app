@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -21,11 +22,77 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
   const [voucherCode, setVoucherCode] = useState('')
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const searchParams = useSearchParams()
   const supabase = createClient()
 
   useEffect(() => {
     loadPlans()
   }, [])
+
+  // Handle return from Stripe after adding payment method
+  useEffect(() => {
+    const paymentMethodAdded = searchParams.get('payment_method_added')
+    const pending = localStorage.getItem('pending_onboarding_subscription')
+
+    if (paymentMethodAdded === 'true' && pending) {
+      try {
+        const { selectedPlan: pendingPlan, voucherCode: pendingVoucher } = JSON.parse(pending)
+        localStorage.removeItem('pending_onboarding_subscription')
+
+        // Set the form state and auto-trigger subscription creation
+        setSelectedPlan(pendingPlan)
+        setVoucherCode(pendingVoucher || '')
+        completePendingSubscription(pendingPlan, pendingVoucher)
+      } catch (err) {
+        console.error('Error parsing pending subscription:', err)
+        localStorage.removeItem('pending_onboarding_subscription')
+      }
+    }
+  }, [searchParams]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const completePendingSubscription = async (pendingPlan: string, pendingVoucher: string) => {
+    setCreating(true)
+    setError(null)
+
+    try {
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        throw new Error('Benutzer nicht gefunden')
+      }
+
+      // Get price ID from vault
+      const { data: priceIdData, error: priceError } = await supabase
+        .rpc('get_stripe_price_id', { plan_name_input: pendingPlan })
+
+      if (priceError || !priceIdData) {
+        throw new Error(`Fehler beim Abrufen der Preisinformationen: ${priceError?.message || 'Price ID not found'}`)
+      }
+
+      // Create subscription (customer should already exist from previous attempt)
+      const { data: subscriptionData, error: subscriptionError } = await supabase.rpc('create_subscription_via_wrapper', {
+        price_id: priceIdData,
+        trial_days: 0,
+        coupon_id: pendingVoucher || null
+      })
+
+      if (subscriptionError) {
+        throw new Error(`Fehler beim Erstellen des Abonnements: ${subscriptionError.message}`)
+      }
+
+      if (subscriptionData && !subscriptionData.success) {
+        throw new Error(subscriptionData.error || 'Fehler beim Erstellen des Abonnements')
+      }
+
+      // Success! Proceed to farm setup
+      onComplete()
+
+    } catch (err) {
+      console.error('Pending subscription error:', err)
+      setError(err instanceof Error ? err.message : 'Ein unerwarteter Fehler ist aufgetreten')
+    } finally {
+      setCreating(false)
+    }
+  }
 
   const loadPlans = async () => {
     try {
@@ -104,7 +171,35 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
 
       console.log('Stripe customer created:', customerData)
 
-      // Step 2: Get price ID from vault
+      // Step 2: Check if user has payment method
+      const { data: hasPaymentMethod, error: pmError } = await supabase.rpc('user_has_payment_method')
+
+      if (pmError) {
+        console.error('Error checking payment method:', pmError)
+        throw new Error('Fehler beim Überprüfen der Zahlungsmethode')
+      }
+
+      if (!hasPaymentMethod) {
+        // No payment method - redirect to Stripe to add one
+        const { data: checkoutData, error: checkoutError } = await supabase.rpc('create_payment_method_checkout_session')
+
+        if (checkoutError || !checkoutData?.checkout_url) {
+          console.error('Error creating checkout session:', checkoutError)
+          throw new Error('Fehler beim Erstellen der Checkout-Session')
+        }
+
+        // Store pending subscription info to complete after payment method is added
+        localStorage.setItem('pending_onboarding_subscription', JSON.stringify({
+          selectedPlan,
+          voucherCode: voucherCode.trim()
+        }))
+
+        // Redirect to Stripe to add payment method
+        window.location.href = checkoutData.checkout_url
+        return
+      }
+
+      // Step 3: Has payment method - Get price ID from vault
       console.log('Fetching price ID for plan:', selectedPlan)
       const { data: priceIdData, error: priceError } = await supabase
         .rpc('get_stripe_price_id', { plan_name_input: selectedPlan })
@@ -115,7 +210,7 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
 
       console.log('Using price ID from vault:', priceIdData)
 
-      // Step 3: Create subscription
+      // Step 4: Create subscription
       console.log('Creating subscription with voucher:', voucherCode || 'none')
       const { data: subscriptionData, error: subscriptionError } = await supabase.rpc('create_subscription_via_wrapper', {
         price_id: priceIdData,

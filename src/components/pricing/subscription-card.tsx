@@ -125,7 +125,7 @@ export function SubscriptionCard({
 
       if (!hasPaymentMethod) {
         // No payment method - redirect to Stripe to add one
-        const { data: checkoutData, error: checkoutError } = await supabase.rpc('create_stripe_checkout_session_for_setup')
+        const { data: checkoutData, error: checkoutError } = await supabase.rpc('create_payment_method_checkout_session')
 
         if (checkoutError || !checkoutData?.checkout_url) {
           console.error('Error creating checkout session:', checkoutError)
