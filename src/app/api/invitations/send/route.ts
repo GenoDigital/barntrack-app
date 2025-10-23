@@ -81,21 +81,6 @@ export async function POST(request: Request) {
       )
     }
 
-    // Check if user is already a member
-    const { data: existingMember } = await supabase
-      .from('farm_members')
-      .select('id')
-      .eq('farm_id', farmId)
-      .eq('user_id', user.id)
-      .maybeSingle()
-
-    if (existingMember) {
-      return NextResponse.json(
-        { error: 'User is already a member of this farm' },
-        { status: 400 }
-      )
-    }
-
     // Check if there's already a pending invitation
     const { data: existingInvitation } = await supabase
       .from('invitations')
