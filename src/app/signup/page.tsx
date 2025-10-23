@@ -62,12 +62,12 @@ function SignupForm() {
     try {
       if (isInviteMode) {
         // Member signup (invited user)
-        // User will enter their invitation code after email verification
+        // User will be routed by middleware after email verification
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/login`,
+            emailRedirectTo: `${window.location.origin}/auth/confirm?next=/dashboard`,
             data: {
               display_name: displayName,
               signup_source: 'invitation',  // Invitation signups are always members
@@ -88,12 +88,13 @@ function SignupForm() {
         // User will redeem invitation code after logging in
       } else {
         // Direct signup (for farm owners)
+        // User will be routed by middleware after email verification
         const autoDisplayName = displayName || `${firstName} ${lastName}`.trim()
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/auth/confirm?next=/onboarding`,
+            emailRedirectTo: `${window.location.origin}/auth/confirm?next=/dashboard`,
             data: {
               display_name: autoDisplayName,
               first_name: firstName,

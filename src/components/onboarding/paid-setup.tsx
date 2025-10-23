@@ -29,27 +29,46 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
 
   const loadPlans = async () => {
     try {
-      const { data: planConfigs, error } = await supabase
+      // Fetch prices from Stripe API (single source of truth for pricing)
+      const { data: stripePrices, error: pricesError } = await supabase.rpc('get_stripe_prices_for_products')
+
+      if (pricesError) {
+        console.error('Error fetching Stripe prices:', pricesError)
+        throw new Error('Fehler beim Laden der Preise von Stripe')
+      }
+
+      // Fetch plan configurations (features, limits, display info - NOT prices)
+      const { data: planConfigs, error: configError } = await supabase
         .from('plan_configurations')
-        .select('*')
+        .select('plan_name, display_name, description, stripe_product_id, max_farms, max_users_per_farm, can_invite_users, has_advanced_analytics, has_priority_support, has_bulk_import, has_custom_reports, has_api_access, sort_order')
         .eq('is_active', true)
         .order('sort_order')
 
-      if (error) throw error
+      if (configError) throw configError
 
-      setPlans(planConfigs || [])
-      if (planConfigs && planConfigs.length > 0) {
+      // Match Stripe prices with plan configurations by product_id
+      const matchedPlans = planConfigs?.map(config => {
+        const stripePrice = stripePrices?.find((p: any) => p.product_id === config.stripe_product_id && p.recurring_interval === 'year')
+        return {
+          ...config,
+          stripe_price_id: stripePrice?.price_id,
+          yearly_price_cents: stripePrice?.unit_amount || 0,  // Price from Stripe, not database
+        }
+      }) || []
+
+      setPlans(matchedPlans)
+      if (matchedPlans.length > 0) {
         // Default to professional plan
-        const professional = planConfigs.find(p => p.plan_name === 'professional')
+        const professional = matchedPlans.find(p => p.plan_name === 'professional')
         if (professional) {
           setSelectedPlan(professional.plan_name)
         } else {
-          setSelectedPlan(planConfigs[0].plan_name)
+          setSelectedPlan(matchedPlans[0].plan_name)
         }
       }
     } catch (err) {
       console.error('Error loading plans:', err)
-      setError('Fehler beim Laden der Pläne')
+      setError(err instanceof Error ? err.message : 'Fehler beim Laden der Pläne')
     } finally {
       setPlansLoading(false)
     }
