@@ -184,8 +184,18 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
       if (data?.success && data.coupon) {
         setValidatedCoupon(data.coupon)
         setCouponError(null)
+        console.log('Coupon validated:', data)
       } else {
-        setCouponError(data?.error || 'Ungültiger Gutscheincode')
+        // Enhanced error message with details
+        let errorMsg = data?.error || 'Ungültiger Gutscheincode'
+        if (data?.stripe_mode) {
+          errorMsg += ` (Stripe ${data.stripe_mode} mode)`
+        }
+        if (data?.searched_code) {
+          errorMsg += ` - Searched for: "${data.searched_code}"`
+        }
+        console.error('Coupon validation failed:', data)
+        setCouponError(errorMsg)
         setValidatedCoupon(null)
       }
     } catch (err) {
