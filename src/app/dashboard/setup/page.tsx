@@ -10,12 +10,14 @@ import { Plus, Users } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createFarmAction } from '@/app/actions/farm-actions'
+import { useFarmStore } from '@/lib/stores/farm-store'
 
 export default function SetupPage() {
   const [isCreating, setIsCreating] = useState(false)
   const [farmName, setFarmName] = useState('')
   const [farmDescription, setFarmDescription] = useState('')
   const router = useRouter()
+  const { setCurrentFarmId } = useFarmStore()
 
   const handleCreateFarm = async () => {
     setIsCreating(true)
@@ -28,6 +30,10 @@ export default function SetupPage() {
     setIsCreating(false)
 
     if (result.success) {
+      // Auto-select the newly created farm
+      if (result.farm?.id) {
+        setCurrentFarmId(result.farm.id)
+      }
       toast.success('Stall erfolgreich erstellt!')
       router.push('/dashboard')
     } else {
