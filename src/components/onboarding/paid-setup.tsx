@@ -15,11 +15,26 @@ interface PaidSetupProps {
   onComplete: () => void
 }
 
+interface CouponInfo {
+  id: string
+  name: string | null
+  percent_off: number | null
+  amount_off: number | null
+  currency: string | null
+  duration: string
+  duration_in_months: number | null
+  valid: boolean
+  is_full_discount: boolean
+}
+
 export function PaidSetup({ onComplete }: PaidSetupProps) {
   const [plans, setPlans] = useState<any[]>([])
   const [plansLoading, setPlansLoading] = useState(true)
   const [selectedPlan, setSelectedPlan] = useState('professional')
   const [voucherCode, setVoucherCode] = useState('')
+  const [validatedCoupon, setValidatedCoupon] = useState<CouponInfo | null>(null)
+  const [validatingCoupon, setValidatingCoupon] = useState(false)
+  const [couponError, setCouponError] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const searchParams = useSearchParams()
@@ -145,6 +160,43 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
     return (cents / 100).toFixed(0)
   }
 
+  const validateCoupon = async (code: string) => {
+    if (!code || code.trim() === '') {
+      setValidatedCoupon(null)
+      setCouponError(null)
+      return
+    }
+
+    setValidatingCoupon(true)
+    setCouponError(null)
+
+    try {
+      const { data, error } = await supabase.rpc('validate_stripe_coupon', {
+        coupon_code: code.trim()
+      })
+
+      if (error) {
+        setCouponError('Fehler beim Validieren des Gutscheincodes')
+        setValidatedCoupon(null)
+        return
+      }
+
+      if (data?.success && data.coupon) {
+        setValidatedCoupon(data.coupon)
+        setCouponError(null)
+      } else {
+        setCouponError(data?.error || 'Ungültiger Gutscheincode')
+        setValidatedCoupon(null)
+      }
+    } catch (err) {
+      console.error('Error validating coupon:', err)
+      setCouponError('Fehler beim Validieren des Gutscheincodes')
+      setValidatedCoupon(null)
+    } finally {
+      setValidatingCoupon(false)
+    }
+  }
+
   const handleCreateSubscription = async () => {
     setCreating(true)
     setError(null)
@@ -171,35 +223,40 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
 
       console.log('Stripe customer created:', customerData)
 
-      // Step 2: Check if user has payment method
-      const { data: hasPaymentMethod, error: pmError } = await supabase.rpc('user_has_payment_method')
+      // Step 2: Check if we need payment method
+      // Skip payment method requirement if coupon is 100% off
+      const needsPaymentMethod = !validatedCoupon?.is_full_discount
 
-      if (pmError) {
-        console.error('Error checking payment method:', pmError)
-        throw new Error('Fehler beim Überprüfen der Zahlungsmethode')
-      }
+      if (needsPaymentMethod) {
+        const { data: hasPaymentMethod, error: pmError } = await supabase.rpc('user_has_payment_method')
 
-      if (!hasPaymentMethod) {
-        // No payment method - redirect to Stripe to add one
-        const { data: checkoutData, error: checkoutError } = await supabase.rpc('create_payment_method_checkout_session')
-
-        if (checkoutError || !checkoutData?.checkout_url) {
-          console.error('Error creating checkout session:', checkoutError)
-          throw new Error('Fehler beim Erstellen der Checkout-Session')
+        if (pmError) {
+          console.error('Error checking payment method:', pmError)
+          throw new Error('Fehler beim Überprüfen der Zahlungsmethode')
         }
 
-        // Store pending subscription info to complete after payment method is added
-        localStorage.setItem('pending_onboarding_subscription', JSON.stringify({
-          selectedPlan,
-          voucherCode: voucherCode.trim()
-        }))
+        if (!hasPaymentMethod) {
+          // No payment method - redirect to Stripe to add one
+          const { data: checkoutData, error: checkoutError } = await supabase.rpc('create_payment_method_checkout_session')
 
-        // Redirect to Stripe to add payment method
-        window.location.href = checkoutData.checkout_url
-        return
+          if (checkoutError || !checkoutData?.checkout_url) {
+            console.error('Error creating checkout session:', checkoutError)
+            throw new Error('Fehler beim Erstellen der Checkout-Session')
+          }
+
+          // Store pending subscription info to complete after payment method is added
+          localStorage.setItem('pending_onboarding_subscription', JSON.stringify({
+            selectedPlan,
+            voucherCode: voucherCode.trim()
+          }))
+
+          // Redirect to Stripe to add payment method
+          window.location.href = checkoutData.checkout_url
+          return
+        }
       }
 
-      // Step 3: Has payment method - Get price ID from vault
+      // Step 3: Get price ID from vault
       console.log('Fetching price ID for plan:', selectedPlan)
       const { data: priceIdData, error: priceError } = await supabase
         .rpc('get_stripe_price_id', { plan_name_input: selectedPlan })
@@ -340,17 +397,68 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
         {/* Voucher Code */}
         <div className="space-y-2">
           <Label htmlFor="voucherCode">Gutscheincode (optional)</Label>
-          <Input
-            id="voucherCode"
-            type="text"
-            placeholder="z.B. WELCOME2024"
-            value={voucherCode}
-            onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
-            disabled={creating}
-          />
-          <p className="text-xs text-muted-foreground">
-            Haben Sie einen Gutscheincode? Geben Sie ihn hier ein für Rabatte oder kostenlose Monate.
-          </p>
+          <div className="flex gap-2">
+            <Input
+              id="voucherCode"
+              type="text"
+              placeholder="z.B. WELCOME2024"
+              value={voucherCode}
+              onChange={(e) => {
+                setVoucherCode(e.target.value.toUpperCase())
+                setValidatedCoupon(null)
+                setCouponError(null)
+              }}
+              disabled={creating || validatingCoupon}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => validateCoupon(voucherCode)}
+              disabled={!voucherCode || creating || validatingCoupon}
+            >
+              {validatingCoupon ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                'Prüfen'
+              )}
+            </Button>
+          </div>
+
+          {/* Coupon validation feedback */}
+          {validatedCoupon && (
+            <Alert className="border-green-500 bg-green-50 dark:bg-green-950">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-green-800 dark:text-green-200">
+                <strong>✓ Gutscheincode gültig!</strong>
+                {validatedCoupon.percent_off && (
+                  <div className="text-sm mt-1">
+                    {validatedCoupon.percent_off}% Rabatt
+                    {validatedCoupon.duration === 'forever' && ' für immer'}
+                    {validatedCoupon.duration === 'once' && ' für den ersten Monat'}
+                    {validatedCoupon.duration === 'repeating' && ` für ${validatedCoupon.duration_in_months} Monate`}
+                  </div>
+                )}
+                {validatedCoupon.is_full_discount && (
+                  <div className="text-sm mt-1 font-semibold">
+                    🎉 Keine Zahlungsmethode erforderlich!
+                  </div>
+                )}
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {couponError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{couponError}</AlertDescription>
+            </Alert>
+          )}
+
+          {!validatedCoupon && !couponError && (
+            <p className="text-xs text-muted-foreground">
+              Haben Sie einen Gutscheincode? Geben Sie ihn hier ein und klicken Sie auf "Prüfen".
+            </p>
+          )}
         </div>
 
         {/* Error Display */}
@@ -374,15 +482,21 @@ export function PaidSetup({ onComplete }: PaidSetupProps) {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Abonnement wird erstellt...
               </>
+            ) : validatedCoupon?.is_full_discount ? (
+              <>
+                Kostenloses Abonnement aktivieren
+              </>
             ) : (
               <>
                 Weiter zur Zahlung
               </>
             )}
           </Button>
-          <p className="text-xs text-center text-muted-foreground mt-2">
-            Sie werden zur sicheren Stripe-Zahlungsseite weitergeleitet
-          </p>
+          {!validatedCoupon?.is_full_discount && (
+            <p className="text-xs text-center text-muted-foreground mt-2">
+              Sie werden zur sicheren Stripe-Zahlungsseite weitergeleitet
+            </p>
+          )}
         </div>
       </CardContent>
     </Card>
