@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -28,7 +29,8 @@ import {
   FolderOpen,
   Filter,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  X
 } from 'lucide-react'
 import { Tables } from '@/lib/database.types'
 import * as XLSX from 'xlsx'
@@ -41,7 +43,7 @@ import { startOfWeek, format, getISOWeek, parseISO } from 'date-fns'
 import { de } from 'date-fns/locale'
 import { TimelineKanban } from '@/components/evaluation/timeline-kanban'
 import { calculateTotalAnimalsFromDetails, calculateCycleDuration } from '@/lib/utils/livestock-calculations'
-import { calculateCycleMetrics, calculateAreaMetrics as calcAreaMetrics, calculateFeedComponentSummary as calcFeedComponentSummary } from '@/lib/utils/kpi-calculations'
+import { calculateCycleMetrics, calculateAreaMetrics as calcAreaMetrics, calculateFeedComponentSummary as calcFeedComponentSummary, filterConsumptionByTimeframe, type ConsumptionItem, type LivestockCountDetail } from '@/lib/utils/kpi-calculations'
 import { ErrorBoundary } from '@/components/error-boundary'
 
 // Utility function to parse date strings without timezone issues
@@ -173,6 +175,30 @@ function EvaluationContent() {
   // Weitere Kosten expansion state
   const [showWeitereKosten, setShowWeitereKosten] = useState(false)
 
+  // Data quality warnings
+  const [dataQualityIssues, setDataQualityIssues] = useState<{
+    missingFeedDays: Array<{
+      areaId: string
+      areaName: string
+      missingDays: number
+      totalDays: number
+      dateRange: string
+    }>
+    missingPrices: Array<{
+      feedTypeId: string
+      feedTypeName: string
+      recordsWithoutPrice: number
+      totalQuantity: number
+      affectedDates: string[]
+    }>
+  }>({ missingFeedDays: [], missingPrices: [] })
+  const [showMissingFeedDetails, setShowMissingFeedDetails] = useState(false)
+  const [showMissingPriceDetails, setShowMissingPriceDetails] = useState(false)
+  const [dismissedAlerts, setDismissedAlerts] = useState<{
+    missingFeedDays: boolean
+    missingPrices: boolean
+  }>({ missingFeedDays: false, missingPrices: false })
+
   const { currentFarmId } = useFarmStore()
   const { subscription } = useSubscription()
   const supabase = createClient()
@@ -189,6 +215,8 @@ function EvaluationContent() {
 
   useEffect(() => {
     if (selectedDurchgang) {
+      // Reset dismissed alerts when switching durchgang
+      setDismissedAlerts({ missingFeedDays: false, missingPrices: false })
       loadEvaluationData()
     }
   }, [selectedDurchgang])
@@ -283,27 +311,15 @@ function EvaluationContent() {
 
       console.log('Loaded consumption records:', consumption.length)
 
-      // Filter consumption to only include areas/groups that have animals in this Durchgang
-      const areasWithAnimals = new Set(
-        durchgang.livestock_count_details
-          .filter(detail => detail.count > 0)
-          .map(detail => detail.area_id)
-      )
+      // Filter consumption to only include items from areas/groups during their active timeframes
+      // This ensures we only count feed when animals are actually present
+      const filteredConsumption = filterConsumptionByTimeframe(
+        consumption as ConsumptionItem[],
+        durchgang.livestock_count_details as LivestockCountDetail[],
+        durchgang.end_date
+      ) as ConsumptionData[]
 
-      const groupsWithAnimals = new Set(
-        durchgang.livestock_count_details
-          .filter(detail => detail.count > 0)
-          .map(detail => detail.area_group_id)
-          .filter(id => id != null)
-      )
-
-      console.log('Areas with animals:', Array.from(areasWithAnimals))
-      console.log('Groups with animals:', Array.from(groupsWithAnimals))
-
-      // Use all consumption - timeframe filtering happens in calculateMetrics
-      const filteredConsumption = consumption as ConsumptionData[]
-
-      console.log('Total consumption records:', filteredConsumption.length)
+      console.log('Filtered consumption records (with timeframe filtering):', filteredConsumption.length)
 
       // Load cost transactions for this durchgang
       const { data: costData } = await supabase
@@ -324,6 +340,10 @@ function EvaluationContent() {
       calculateMetrics(durchgang, filteredConsumption, costData || [])
       calculateAreaMetrics(durchgang, filteredConsumption, costData || [])
       calculateFeedComponentSummary(durchgang, filteredConsumption)
+
+      // Detect data quality issues
+      const issues = detectDataQualityIssues(durchgang, filteredConsumption)
+      setDataQualityIssues(issues)
     } catch (error) {
       console.error('Error loading evaluation data:', error)
     } finally {
@@ -364,6 +384,113 @@ function EvaluationContent() {
     // Use centralized KPI calculation function
     const summary = calcFeedComponentSummary(durchgang as any, consumption as any)
     setFeedComponentSummary(summary)
+  }
+
+  const detectDataQualityIssues = (durchgang: LivestockCountWithDetails, consumption: ConsumptionData[]) => {
+    const missingFeedDays: Array<{
+      areaId: string
+      areaName: string
+      missingDays: number
+      totalDays: number
+      dateRange: string
+    }> = []
+
+    const missingPrices: Array<{
+      feedTypeId: string
+      feedTypeName: string
+      recordsWithoutPrice: number
+      totalQuantity: number
+      affectedDates: string[]
+    }> = []
+
+    // Check for missing feed consumption days for each area/group
+    durchgang.livestock_count_details.forEach(detail => {
+      if (detail.count <= 0) return // Skip areas without animals
+
+      const startDate = new Date(detail.start_date)
+      const endDate = detail.end_date
+        ? new Date(detail.end_date)
+        : (durchgang.end_date ? new Date(durchgang.end_date) : new Date())
+
+      // Calculate total days in the timeframe
+      const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+
+      // Get all consumption dates for this area/group
+      const consumptionDates = new Set<string>()
+      consumption.forEach(item => {
+        // Check if this consumption belongs to this area/group
+        const belongsToArea = detail.area_id && item.area_id === detail.area_id
+        const belongsToGroup = detail.area_group_id && item.areas?.area_group_memberships && (() => {
+          const membership = Array.isArray(item.areas.area_group_memberships)
+            ? item.areas.area_group_memberships[0]
+            : item.areas.area_group_memberships
+          return membership?.area_group_id === detail.area_group_id
+        })()
+
+        if (belongsToArea || belongsToGroup) {
+          const itemDate = new Date(item.date)
+          if (itemDate >= startDate && itemDate <= endDate) {
+            consumptionDates.add(item.date)
+          }
+        }
+      })
+
+      // Calculate missing days
+      const missingDays = totalDays - consumptionDates.size
+
+      if (missingDays > 0) {
+        const areaName = detail.areas?.name || detail.area_groups?.name || 'Unbekannt'
+        const areaId = detail.area_id || detail.area_group_id || 'unknown'
+
+        missingFeedDays.push({
+          areaId,
+          areaName,
+          missingDays,
+          totalDays,
+          dateRange: `${format(startDate, 'dd.MM.yyyy', { locale: de })} - ${format(endDate, 'dd.MM.yyyy', { locale: de })}`
+        })
+      }
+    })
+
+    // Check for missing prices
+    const priceIssuesMap = new Map<string, {
+      feedTypeName: string
+      recordsWithoutPrice: number
+      totalQuantity: number
+      affectedDates: Set<string>
+    }>()
+
+    consumption.forEach(item => {
+      // Check if price is missing or zero
+      if (!item.total_cost || item.total_cost === 0) {
+        const feedTypeId = item.feed_type_id
+        if (!priceIssuesMap.has(feedTypeId)) {
+          priceIssuesMap.set(feedTypeId, {
+            feedTypeName: item.feed_types.name,
+            recordsWithoutPrice: 0,
+            totalQuantity: 0,
+            affectedDates: new Set()
+          })
+        }
+        const existing = priceIssuesMap.get(feedTypeId)!
+        existing.recordsWithoutPrice++
+        existing.totalQuantity += item.quantity
+        existing.affectedDates.add(item.date)
+      }
+    })
+
+    // Convert price issues to array
+    priceIssuesMap.forEach((value, feedTypeId) => {
+      missingPrices.push({
+        feedTypeId,
+        feedTypeName: value.feedTypeName,
+        recordsWithoutPrice: value.recordsWithoutPrice,
+        totalQuantity: value.totalQuantity,
+        affectedDates: Array.from(value.affectedDates).sort().slice(0, 5) // Show first 5 dates
+      })
+    })
+
+    return { missingFeedDays, missingPrices }
   }
 
   const formatCurrency = (amount: number) => {
@@ -601,6 +728,119 @@ function EvaluationContent() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Data Quality Warnings */}
+      {selectedDurchgangData && (dataQualityIssues.missingFeedDays.length > 0 || dataQualityIssues.missingPrices.length > 0) && (
+        <div className="space-y-4">
+          {/* Missing Feed Days Warning */}
+          {dataQualityIssues.missingFeedDays.length > 0 && !dismissedAlerts.missingFeedDays && (
+            <Alert className="border-orange-500/50 bg-orange-50 dark:bg-orange-950/20 relative">
+              <AlertTriangle className="h-4 w-4 text-orange-600" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-2 top-2 h-6 w-6 p-0 hover:bg-orange-100 dark:hover:bg-orange-900/30"
+                onClick={() => setDismissedAlerts(prev => ({ ...prev, missingFeedDays: true }))}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+              <AlertTitle className="text-orange-900 dark:text-orange-100">
+                Fehlende Futterdaten
+              </AlertTitle>
+              <AlertDescription className="text-orange-800 dark:text-orange-200">
+                <div className="space-y-2">
+                  <p>
+                    Es wurden Tage ohne Futterverbrauchsdaten für {dataQualityIssues.missingFeedDays.length} Bereich(e) erkannt.
+                    Dies kann die Genauigkeit der Auswertung beeinträchtigen.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowMissingFeedDetails(!showMissingFeedDetails)}
+                    className="mt-2"
+                  >
+                    {showMissingFeedDetails ? 'Details ausblenden' : 'Details anzeigen'}
+                    <ChevronDown className={`ml-2 h-4 w-4 transition-transform ${showMissingFeedDetails ? 'rotate-180' : ''}`} />
+                  </Button>
+                  {showMissingFeedDetails && (
+                    <div className="mt-3 space-y-2 rounded-lg bg-white/50 dark:bg-black/20 p-3">
+                      {dataQualityIssues.missingFeedDays.map((issue) => (
+                        <div key={issue.areaId} className="flex justify-between items-start border-b pb-2 last:border-0">
+                          <div>
+                            <div className="font-medium">{issue.areaName}</div>
+                            <div className="text-sm text-muted-foreground">{issue.dateRange}</div>
+                          </div>
+                          <Badge variant="outline" className="bg-orange-100 dark:bg-orange-900/30">
+                            {issue.missingDays} von {issue.totalDays} Tagen
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Missing Prices Warning */}
+          {dataQualityIssues.missingPrices.length > 0 && !dismissedAlerts.missingPrices && (
+            <Alert className="border-yellow-500/50 bg-yellow-50 dark:bg-yellow-950/20 relative">
+              <AlertTriangle className="h-4 w-4 text-yellow-600" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="absolute right-2 top-2 h-6 w-6 p-0 hover:bg-yellow-100 dark:hover:bg-yellow-900/30"
+                onClick={() => setDismissedAlerts(prev => ({ ...prev, missingPrices: true }))}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+              <AlertTitle className="text-yellow-900 dark:text-yellow-100">
+                Fehlende Preise
+              </AlertTitle>
+              <AlertDescription className="text-yellow-800 dark:text-yellow-200">
+                <div className="space-y-2">
+                  <p>
+                    Für {dataQualityIssues.missingPrices.length} Futtermittel fehlen Preisinformationen.
+                    Die Kostenberechnungen sind daher unvollständig.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowMissingPriceDetails(!showMissingPriceDetails)}
+                    className="mt-2"
+                  >
+                    {showMissingPriceDetails ? 'Details ausblenden' : 'Details anzeigen'}
+                    <ChevronDown className={`ml-2 h-4 w-4 transition-transform ${showMissingPriceDetails ? 'rotate-180' : ''}`} />
+                  </Button>
+                  {showMissingPriceDetails && (
+                    <div className="mt-3 space-y-2 rounded-lg bg-white/50 dark:bg-black/20 p-3">
+                      {dataQualityIssues.missingPrices.map((issue) => (
+                        <div key={issue.feedTypeId} className="space-y-1 border-b pb-2 last:border-0">
+                          <div className="flex justify-between items-start">
+                            <div className="font-medium">{issue.feedTypeName}</div>
+                            <Badge variant="outline" className="bg-yellow-100 dark:bg-yellow-900/30">
+                              {formatNumber(issue.totalQuantity, 0)} kg
+                            </Badge>
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {issue.recordsWithoutPrice} Einträge ohne Preis
+                          </div>
+                          {issue.affectedDates.length > 0 && (
+                            <div className="text-xs text-muted-foreground">
+                              Betroffene Daten: {issue.affectedDates.map(d => format(new Date(d), 'dd.MM.yyyy', { locale: de })).join(', ')}
+                              {issue.affectedDates.length >= 5 && ' ...'}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+        </div>
       )}
 
       {selectedDurchgangData && (
@@ -1067,20 +1307,36 @@ function EvaluationContent() {
                     existing.cost += item.total_cost
                   })
 
-                  // Get all unique feed types
-                  const allFeedTypes = Array.from(new Set(consumptionData.map(d => d.feed_type_id)))
-                    .slice(0, 5) // Limit to top 5 feed types for clarity
+                  // Get top 5 feed types by total quantity
+                  const feedTypeTotals = consumptionData.reduce((acc, item) => {
+                    if (!acc[item.feed_type_id]) {
+                      acc[item.feed_type_id] = { quantity: 0, cost: 0 }
+                    }
+                    acc[item.feed_type_id].quantity += item.quantity
+                    acc[item.feed_type_id].cost += item.total_cost
+                    return acc
+                  }, {} as Record<string, { quantity: number; cost: number }>)
+
+                  const allFeedTypes = Object.entries(feedTypeTotals)
+                    .sort((a, b) => b[1].quantity - a[1].quantity)
+                    .map(([feedId]) => feedId)
+
+                  // Create a mapping of feed names (before creating chart data)
+                  const feedIdToName: Record<string, string> = {}
+                  allFeedTypes.forEach(feedId => {
+                    feedIdToName[feedId] = consumptionData.find(d => d.feed_type_id === feedId)?.feed_types.name || feedId
+                  })
 
                   // Convert to chart data format using complete week range
                   const chartData = allWeeks.map(week => {
                     const weekData: any = { week }
                     const feedMap = weekMap.get(week)
 
-                    allFeedTypes.forEach(feedId => {
+                    allFeedTypes.forEach((feedId, index) => {
                       const feedData = feedMap?.get(feedId)
-                      const feedName = feedData?.name || consumptionData.find(d => d.feed_type_id === feedId)?.feed_types.name || feedId
+                      const safeKey = `feed-${index}`
                       // Use quantity or cost based on chartViewMode
-                      weekData[feedName] = chartViewMode === 'quantity'
+                      weekData[safeKey] = chartViewMode === 'quantity'
                         ? (feedData?.quantity || 0)
                         : (feedData?.cost || 0)
                     })
@@ -1090,10 +1346,27 @@ function EvaluationContent() {
 
                   // Create chart config dynamically
                   const chartConfig: any = {}
-                  const colors = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)']
+                  // 10 distinct colors for feed types
+                  const colors = [
+                    '#e67e22', // orange
+                    '#3498db', // blue
+                    '#2ecc71', // green
+                    '#f1c40f', // yellow
+                    '#9b59b6', // purple
+                    '#e74c3c', // red
+                    '#1abc9c', // turquoise
+                    '#34495e', // dark gray
+                    '#16a085', // dark turquoise
+                    '#d35400', // dark orange
+                  ]
+
+                  // Create a mapping of feed names to safe keys for CSS variables
+                  const feedNameToKey: Record<string, string> = {}
                   allFeedTypes.forEach((feedId, index) => {
                     const feedName = consumptionData.find(d => d.feed_type_id === feedId)?.feed_types.name || feedId
-                    chartConfig[feedName] = {
+                    const safeKey = `feed-${index}`
+                    feedNameToKey[feedName] = safeKey
+                    chartConfig[safeKey] = {
                       label: feedName,
                       color: colors[index % colors.length]
                     }
@@ -1118,7 +1391,8 @@ function EvaluationContent() {
                                 try {
                                   const date = new Date(value)
                                   const weekNum = getISOWeek(date)
-                                  return `KW ${weekNum}`
+                                  const year = format(date, 'yy')
+                                  return `KW ${weekNum}/${year}`
                                 } catch {
                                   return value
                                 }
@@ -1137,20 +1411,66 @@ function EvaluationContent() {
                             />
                             <ChartTooltip
                               cursor={false}
-                              content={<ChartTooltipContent hideLabel />}
+                              content={({ active, payload, label }) => {
+                                if (!active || !payload || !payload.length) return null
+
+                                const date = new Date(label)
+                                const weekNum = getISOWeek(date)
+                                const year = format(date, 'yy')
+
+                                return (
+                                  <div className="rounded-lg border bg-background p-3 shadow-md">
+                                    <div className="font-medium mb-2 text-sm">
+                                      KW {weekNum}/{year} ({format(date, 'dd.MM.yyyy', { locale: de })})
+                                    </div>
+                                    <div className="space-y-1">
+                                      {payload.map((entry: any, index) => {
+                                        // Get the actual feed name from chartConfig using the safe key (dataKey)
+                                        const safeKey = entry.dataKey
+                                        const feedName = chartConfig[safeKey]?.label || safeKey
+                                        const color = chartConfig[safeKey]?.color || entry.color
+
+                                        return (
+                                          <div key={index} className="flex items-center justify-between gap-4">
+                                            <div className="flex items-center gap-2">
+                                              <div className="w-3 h-3 rounded" style={{ backgroundColor: color }} />
+                                              <span className="text-sm">{feedName}</span>
+                                            </div>
+                                            <span className="font-medium text-sm">
+                                              {chartViewMode === 'cost'
+                                                ? formatCurrency(entry.value as number)
+                                                : `${formatNumber(entry.value as number, 0)} kg`}
+                                            </span>
+                                          </div>
+                                        )
+                                      })}
+                                      <div className="border-t pt-1 mt-1">
+                                        <div className="flex justify-between font-medium text-sm">
+                                          <span>Gesamt</span>
+                                          <span>
+                                            {chartViewMode === 'cost'
+                                              ? formatCurrency(payload.reduce((sum, entry) => sum + (entry.value as number), 0))
+                                              : `${formatNumber(payload.reduce((sum, entry) => sum + (entry.value as number), 0), 0)} kg`}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              }}
                             />
                             <ChartLegend content={<ChartLegendContent />} />
                             {allFeedTypes.map((feedId, index) => {
-                              const feedName = consumptionData.find(d => d.feed_type_id === feedId)?.feed_types.name || feedId
+                              const safeKey = `feed-${index}`
                               const isFirst = index === 0
                               const isLast = index === allFeedTypes.length - 1
 
                               return (
                                 <Bar
                                   key={feedId}
-                                  dataKey={feedName}
+                                  dataKey={safeKey}
                                   stackId="a"
-                                  fill={`var(--color-${feedName})`}
+                                  fill={`var(--color-${safeKey})`}
                                   radius={isLast ? [4, 4, 0, 0] : isFirst ? [0, 0, 4, 4] : 0}
                                 />
                               )
