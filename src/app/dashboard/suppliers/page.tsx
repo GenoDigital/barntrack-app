@@ -11,17 +11,21 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import { useFarmStore } from '@/lib/stores/farm-store'
-import { Plus, Edit, Trash2, Building, Phone, Mail, MapPin } from 'lucide-react'
+import { Plus, Edit, Trash2, Building, Phone, Mail, MapPin, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Tables } from '@/lib/database.types'
 import { toast } from 'sonner'
 
 type Supplier = Tables<'suppliers'>
+type SortField = 'name' | 'contactPerson' | 'status'
+type SortDirection = 'asc' | 'desc' | null
 
 export default function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null)
   const [loading, setLoading] = useState(false)
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null)
   const { currentFarmId } = useFarmStore()
   const supabase = createClient()
 
@@ -220,6 +224,66 @@ export default function SuppliersPage() {
     return parts.length > 0 ? parts.join(', ') : '-'
   }
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // Toggle direction: asc -> desc -> null -> asc
+      if (sortDirection === 'asc') {
+        setSortDirection('desc')
+      } else if (sortDirection === 'desc') {
+        setSortDirection(null)
+        setSortField(null)
+      } else {
+        setSortDirection('asc')
+      }
+    } else {
+      setSortField(field)
+      setSortDirection('asc')
+    }
+  }
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />
+    }
+    if (sortDirection === 'asc') {
+      return <ArrowUp className="h-3 w-3 ml-1" />
+    }
+    if (sortDirection === 'desc') {
+      return <ArrowDown className="h-3 w-3 ml-1" />
+    }
+    return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />
+  }
+
+  const getSortedSuppliers = () => {
+    if (!sortField || !sortDirection) return suppliers
+
+    return [...suppliers].sort((a, b) => {
+      let aValue: any
+      let bValue: any
+
+      switch (sortField) {
+        case 'name':
+          aValue = a.name.toLowerCase()
+          bValue = b.name.toLowerCase()
+          break
+        case 'contactPerson':
+          aValue = a.contact_person?.toLowerCase() || ''
+          bValue = b.contact_person?.toLowerCase() || ''
+          break
+        case 'status':
+          aValue = a.is_active ? 1 : 0
+          bValue = b.is_active ? 1 : 0
+          break
+        default:
+          return 0
+      }
+
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
+      return 0
+    })
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -257,16 +321,46 @@ export default function SuppliersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Ansprechpartner</TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('name')}
+                    >
+                      Name
+                      {getSortIcon('name')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('contactPerson')}
+                    >
+                      Ansprechpartner
+                      {getSortIcon('contactPerson')}
+                    </Button>
+                  </TableHead>
                   <TableHead>Kontakt</TableHead>
                   <TableHead>Adresse</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('status')}
+                    >
+                      Status
+                      {getSortIcon('status')}
+                    </Button>
+                  </TableHead>
                   <TableHead>Aktionen</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {suppliers.map((supplier) => (
+                {getSortedSuppliers().map((supplier) => (
                   <TableRow key={supplier.id}>
                     <TableCell className="font-medium">{supplier.name}</TableCell>
                     <TableCell>{supplier.contact_person || '-'}</TableCell>

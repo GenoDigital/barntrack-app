@@ -44,6 +44,8 @@ export interface LivestockCount {
   mortality_rate: number | null
   revenue: number | null
   feed_conversion_ratio: number | null
+  total_lifetime_days: number | null
+  slaughter_weight_kg: number | null
   livestock_count_details: LivestockCountDetail[]
 }
 
@@ -96,6 +98,8 @@ export interface CycleMetrics {
   feedEfficiency: number
   animalPurchaseCost: number
   additionalCosts: number
+  dailyGainGrams: number | null
+  netDailyGainGrams: number | null
 }
 
 export interface AreaMetrics {
@@ -262,6 +266,18 @@ export function calculateCycleMetrics(
   const dailyFeedCost = cycleDuration > 0 ? totalFeedCost / cycleDuration : 0
   const feedEfficiency = totalFeedCost > 0 ? (totalAnimals * weightGain) / totalFeedCost : 0
 
+  // Daily gain calculations
+  // Daily gains (Zunahmen pro Tag): weight gain per day in grams
+  const dailyGainGrams = cycleDuration > 0 && weightGain > 0
+    ? (weightGain / cycleDuration) * 1000 // Convert kg to grams
+    : null
+
+  // Net daily gains (Netto Tageszunahmen): for cattle fattening, calculated from total lifetime
+  // This is slaughter weight / total lifetime days (different from daily gain during the cycle)
+  const netDailyGainGrams = cycle.slaughter_weight_kg && cycle.total_lifetime_days && cycle.total_lifetime_days > 0
+    ? (cycle.slaughter_weight_kg / cycle.total_lifetime_days) * 1000 // Convert kg to grams
+    : null
+
   return {
     totalAnimals,
     averageWeight: endWeight,
@@ -280,7 +296,9 @@ export function calculateCycleMetrics(
     dailyFeedCost,
     feedEfficiency,
     animalPurchaseCost,
-    additionalCosts
+    additionalCosts,
+    dailyGainGrams,
+    netDailyGainGrams
   }
 }
 

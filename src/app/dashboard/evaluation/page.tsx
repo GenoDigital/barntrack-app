@@ -1182,6 +1182,18 @@ function EvaluationContent() {
                         <p className="text-sm text-muted-foreground">Endgewicht Ø</p>
                         <p className="font-bold">{formatNumber(metrics.averageWeight)} kg</p>
                       </div>
+                      {metrics.dailyGainGrams !== null && metrics.dailyGainGrams > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-sm text-muted-foreground">Zunahmen pro Tag</p>
+                          <p className="font-bold text-blue-600">{formatNumber(metrics.dailyGainGrams, 0)} g/Tag</p>
+                        </div>
+                      )}
+                      {metrics.netDailyGainGrams !== null && metrics.netDailyGainGrams > 0 && (
+                        <div className="space-y-1">
+                          <p className="text-sm text-muted-foreground">Netto Tageszunahmen</p>
+                          <p className="font-bold text-purple-600">{formatNumber(metrics.netDailyGainGrams, 0)} g/Tag</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -1827,6 +1839,7 @@ function EvaluationContent() {
                           <TableHead>Zeitraum</TableHead>
                           <TableHead>Tier-Tage</TableHead>
                           <TableHead className="text-right">Futtermenge (kg)</TableHead>
+                          <TableHead className="text-right">Menge/Tier/Tag (kg)</TableHead>
                           <TableHead className="text-right">Futterkosten</TableHead>
                           <TableHead className="text-right">Kosten/Tier/Tag</TableHead>
                           <TableHead className="text-right">Anteil %</TableHead>
@@ -1943,6 +1956,9 @@ function EvaluationContent() {
                                 </div>
                               </TableCell>
                               <TableCell className="text-right">{formatNumber(totalFeedQuantity, 0)}</TableCell>
+                              <TableCell className="text-right">
+                                {totalAnimalDays > 0 ? formatNumber(totalFeedQuantity / totalAnimalDays, 2) : '0'}
+                              </TableCell>
                               <TableCell className="text-right font-medium">{formatCurrency(totalFeedCost)}</TableCell>
                               <TableCell className="text-right">{formatCurrency(costPerAnimalDay)}</TableCell>
                               <TableCell className="text-right">
@@ -2038,6 +2054,9 @@ function EvaluationContent() {
                                 </div>
                               </TableCell>
                               <TableCell className="text-right">{formatNumber(totalFeedQuantity, 0)}</TableCell>
+                              <TableCell className="text-right">
+                                {totalAnimalDays > 0 ? formatNumber(totalFeedQuantity / totalAnimalDays, 2) : '0'}
+                              </TableCell>
                               <TableCell className="text-right font-medium">{formatCurrency(totalFeedCost)}</TableCell>
                               <TableCell className="text-right">{formatCurrency(costPerAnimalDay)}</TableCell>
                               <TableCell className="text-right">
@@ -2070,6 +2089,22 @@ function EvaluationContent() {
                             })()}
                           </TableCell>
                           <TableCell className="text-right">{formatNumber(areaMetrics.reduce((sum, a) => sum + a.totalFeedQuantity, 0), 0)}</TableCell>
+                          <TableCell className="text-right">
+                            {(() => {
+                              const durchgang = durchgaenge.find(d => d.id === selectedDurchgang)
+                              if (!durchgang) return '-'
+                              const totalAnimalDays = durchgang.livestock_count_details.reduce((sum, detail) => {
+                                const startDate = new Date(detail.start_date)
+                                const endDate = detail.end_date
+                                  ? new Date(detail.end_date)
+                                  : (durchgang.end_date ? new Date(durchgang.end_date) : new Date())
+                                const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+                                return sum + (detail.count * days)
+                              }, 0)
+                              const totalFeedQuantity = areaMetrics.reduce((sum, a) => sum + a.totalFeedQuantity, 0)
+                              return totalAnimalDays > 0 ? formatNumber(totalFeedQuantity / totalAnimalDays, 2) : '0'
+                            })()}
+                          </TableCell>
                           <TableCell className="text-right">{formatCurrency(areaMetrics.reduce((sum, a) => sum + a.totalFeedCost, 0))}</TableCell>
                           <TableCell className="text-right">
                             {(() => {

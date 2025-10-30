@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import Link from 'next/link'
 import { useFarmStore } from '@/lib/stores/farm-store'
-import { Plus, Edit, Calendar, Users } from 'lucide-react'
+import { Plus, Edit, Calendar, Users, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Tables } from '@/lib/database.types'
 import { MovementTimelineEditor, type AnimalMovement, type AreaOption } from '@/components/livestock/movement-timeline-editor'
 import { calculateTotalAnimalsFromDetails } from '@/lib/utils/livestock-calculations'
@@ -31,6 +31,9 @@ interface LivestockCountWithDetails extends LivestockCount {
   suppliers?: Supplier
 }
 
+type SortField = 'durchgang' | 'startDate' | 'status' | 'supplier' | 'totalAnimals' | 'buyPrice' | 'sellPrice' | 'profitLoss'
+type SortDirection = 'asc' | 'desc' | null
+
 export default function CountsPage() {
   const [durchgaenge, setDurchgaenge] = useState<LivestockCountWithDetails[]>([])
   const [areas, setAreas] = useState<Area[]>([])
@@ -39,7 +42,9 @@ export default function CountsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingDurchgang, setEditingDurchgang] = useState<LivestockCountWithDetails | null>(null)
   const [loading, setLoading] = useState(false)
-  const { currentFarmId } = useFarmStore()
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null)
+  const { currentFarmId} = useFarmStore()
   const supabase = createClient()
 
   // Form state
@@ -62,11 +67,15 @@ export default function CountsPage() {
   const [feedConversionRatio, setFeedConversionRatio] = useState('')
   const [totalFeedCost, setTotalFeedCost] = useState('')
   const [revenue, setRevenue] = useState('')
+  const [totalLifetimeDays, setTotalLifetimeDays] = useState('')
+  const [slaughterWeightKg, setSlaughterWeightKg] = useState('')
 
   // Calculated fields
   const [weightGain, setWeightGain] = useState<number | null>(null)
   const [totalAnimalsCount, setTotalAnimalsCount] = useState(0)
   const [calculatedProfitLoss, setCalculatedProfitLoss] = useState<number | null>(null)
+  const [dailyGainGrams, setDailyGainGrams] = useState<number | null>(null)
+  const [netDailyGainGrams, setNetDailyGainGrams] = useState<number | null>(null)
 
   // Auto-calculate weight gain when start and end weights change
   useEffect(() => {
@@ -197,6 +206,35 @@ export default function CountsPage() {
     })
     setCalculatedProfitLoss(profitLoss)
   }, [sellPricePerAnimal, buyPricePerAnimal, totalFeedCost, totalAnimalsCount])
+
+  // Auto-calculate daily gains (Zunahmen pro Tag)
+  useEffect(() => {
+    if (weightGain && weightGain > 0 && startDate && endDate) {
+      const start = new Date(startDate)
+      const end = new Date(endDate)
+      const durationDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
+      if (durationDays > 0) {
+        const dailyGain = (weightGain / durationDays) * 1000 // Convert kg to grams
+        setDailyGainGrams(dailyGain)
+      } else {
+        setDailyGainGrams(null)
+      }
+    } else {
+      setDailyGainGrams(null)
+    }
+  }, [weightGain, startDate, endDate])
+
+  // Auto-calculate net daily gains (Netto Tageszunahmen)
+  useEffect(() => {
+    const slaughterWeight = parseFloat(slaughterWeightKg)
+    const lifetimeDays = parseInt(totalLifetimeDays)
+    if (!isNaN(slaughterWeight) && !isNaN(lifetimeDays) && lifetimeDays > 0) {
+      const netDailyGain = (slaughterWeight / lifetimeDays) * 1000 // Convert kg to grams
+      setNetDailyGainGrams(netDailyGain)
+    } else {
+      setNetDailyGainGrams(null)
+    }
+  }, [slaughterWeightKg, totalLifetimeDays])
 
   const calculateFeedCosts = async () => {
     try {
@@ -345,6 +383,8 @@ export default function CountsPage() {
             total_feed_cost: totalFeedCost ? parseFloat(totalFeedCost) : null,
             revenue: revenue ? parseFloat(revenue) : null,
             profit_loss: calculatedProfitLoss,
+            total_lifetime_days: totalLifetimeDays ? parseInt(totalLifetimeDays) : null,
+            slaughter_weight_kg: slaughterWeightKg ? parseFloat(slaughterWeightKg) : null,
           })
           .eq('id', editingDurchgang.id)
 
@@ -378,6 +418,8 @@ export default function CountsPage() {
             total_feed_cost: totalFeedCost ? parseFloat(totalFeedCost) : null,
             revenue: revenue ? parseFloat(revenue) : null,
             profit_loss: calculatedProfitLoss,
+            total_lifetime_days: totalLifetimeDays ? parseInt(totalLifetimeDays) : null,
+            slaughter_weight_kg: slaughterWeightKg ? parseFloat(slaughterWeightKg) : null,
           })
           .select()
           .single()
@@ -447,9 +489,13 @@ export default function CountsPage() {
     setFeedConversionRatio('')
     setTotalFeedCost('')
     setRevenue('')
+    setTotalLifetimeDays('')
+    setSlaughterWeightKg('')
     setWeightGain(null)
     setTotalAnimalsCount(0)
     setCalculatedProfitLoss(null)
+    setDailyGainGrams(null)
+    setNetDailyGainGrams(null)
     setInputMode('simple')
     setMovements([])
     const initialCounts: { [key: string]: { count: number; animalType: string } } = {}
@@ -474,6 +520,8 @@ export default function CountsPage() {
     setFeedConversionRatio(durchgang.feed_conversion_ratio?.toString() || '')
     setTotalFeedCost(durchgang.total_feed_cost?.toString() || '')
     setRevenue(durchgang.revenue?.toString() || '')
+    setTotalLifetimeDays(durchgang.total_lifetime_days?.toString() || '')
+    setSlaughterWeightKg(durchgang.slaughter_weight_kg?.toString() || '')
 
     // Detect counting mode based on existing details
     const hasAreaDetails = durchgang.livestock_count_details.some(d => d.area_id !== null)
@@ -569,6 +617,86 @@ export default function CountsPage() {
     return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount)
   }
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // Toggle direction: asc -> desc -> null -> asc
+      if (sortDirection === 'asc') {
+        setSortDirection('desc')
+      } else if (sortDirection === 'desc') {
+        setSortDirection(null)
+        setSortField(null)
+      } else {
+        setSortDirection('asc')
+      }
+    } else {
+      setSortField(field)
+      setSortDirection('asc')
+    }
+  }
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />
+    }
+    if (sortDirection === 'asc') {
+      return <ArrowUp className="h-3 w-3 ml-1" />
+    }
+    if (sortDirection === 'desc') {
+      return <ArrowDown className="h-3 w-3 ml-1" />
+    }
+    return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />
+  }
+
+  const getSortedDurchgaenge = () => {
+    if (!sortField || !sortDirection) return durchgaenge
+
+    return [...durchgaenge].sort((a, b) => {
+      let aValue: any
+      let bValue: any
+
+      switch (sortField) {
+        case 'durchgang':
+          aValue = (a.durchgang_name || formatDate(a.created_date)).toLowerCase()
+          bValue = (b.durchgang_name || formatDate(b.created_date)).toLowerCase()
+          break
+        case 'startDate':
+          aValue = a.start_date || '9999-12-31'
+          bValue = b.start_date || '9999-12-31'
+          break
+        case 'status':
+          aValue = isActive(a) ? 1 : 0
+          bValue = isActive(b) ? 1 : 0
+          break
+        case 'supplier':
+          aValue = a.suppliers?.name?.toLowerCase() || ''
+          bValue = b.suppliers?.name?.toLowerCase() || ''
+          break
+        case 'totalAnimals':
+          aValue = getTotalAnimals(a)
+          bValue = getTotalAnimals(b)
+          break
+        case 'buyPrice':
+          aValue = a.buy_price_per_animal || 0
+          bValue = b.buy_price_per_animal || 0
+          break
+        case 'sellPrice':
+          aValue = a.sell_price_per_animal || 0
+          bValue = b.sell_price_per_animal || 0
+          break
+        case 'profitLoss':
+          aValue = a.profit_loss || 0
+          bValue = b.profit_loss || 0
+          break
+        default:
+          return 0
+      }
+
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
+      return 0
+    })
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -601,20 +729,100 @@ export default function CountsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Durchgang</TableHead>
-                  <TableHead>Zeitraum</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Lieferant</TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('durchgang')}
+                    >
+                      Durchgang
+                      {getSortIcon('durchgang')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('startDate')}
+                    >
+                      Zeitraum
+                      {getSortIcon('startDate')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('status')}
+                    >
+                      Status
+                      {getSortIcon('status')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('supplier')}
+                    >
+                      Lieferant
+                      {getSortIcon('supplier')}
+                    </Button>
+                  </TableHead>
                   <TableHead>Bereiche</TableHead>
-                  <TableHead>Gesamt Tiere</TableHead>
-                  <TableHead>Einkauf</TableHead>
-                  <TableHead>Verkauf</TableHead>
-                  <TableHead>Gewinn/Verlust</TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('totalAnimals')}
+                    >
+                      Gesamt Tiere
+                      {getSortIcon('totalAnimals')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('buyPrice')}
+                    >
+                      Einkauf
+                      {getSortIcon('buyPrice')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('sellPrice')}
+                    >
+                      Verkauf
+                      {getSortIcon('sellPrice')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('profitLoss')}
+                    >
+                      Gewinn/Verlust
+                      {getSortIcon('profitLoss')}
+                    </Button>
+                  </TableHead>
                   <TableHead>Aktionen</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {durchgaenge.map((durchgang) => (
+                {getSortedDurchgaenge().map((durchgang) => (
                   <TableRow key={durchgang.id}>
                     <TableCell className="font-medium">
                       {durchgang.durchgang_name || `Durchgang ${formatDate(durchgang.created_date)}`}
@@ -843,6 +1051,35 @@ export default function CountsPage() {
                       </p>
                     )}
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="totalLifetimeDays">Gesamte Lebenstage (optional)</Label>
+                    <Input
+                      id="totalLifetimeDays"
+                      type="number"
+                      min="1"
+                      value={totalLifetimeDays}
+                      onChange={(e) => setTotalLifetimeDays(e.target.value)}
+                      placeholder="z.B. 365 (für Netto Tageszunahmen)"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Tage seit Geburt - für Berechnung der Netto Tageszunahmen bei Bullenmast
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="slaughterWeight">Schlachtgewicht (kg, optional)</Label>
+                    <Input
+                      id="slaughterWeight"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={slaughterWeightKg}
+                      onChange={(e) => setSlaughterWeightKg(e.target.value)}
+                      placeholder="z.B. 350.0"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Schlachtgewicht - für Berechnung der Netto Tageszunahmen bei Bullenmast
+                    </p>
+                  </div>
                 </div>
 
                 {/* Calculated Fields Display */}
@@ -890,6 +1127,22 @@ export default function CountsPage() {
                           calculatedProfitLoss >= 0 ? 'text-green-600' : 'text-red-600'
                         }`}>
                           {calculatedProfitLoss >= 0 ? '+' : ''}{formatCurrency(Math.abs(calculatedProfitLoss))}
+                        </div>
+                      </div>
+                    )}
+                    {dailyGainGrams !== null && dailyGainGrams > 0 && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Zunahmen pro Tag</Label>
+                        <div className="font-medium text-blue-600">
+                          {formatNumber(dailyGainGrams, 0)} g/Tag
+                        </div>
+                      </div>
+                    )}
+                    {netDailyGainGrams !== null && netDailyGainGrams > 0 && (
+                      <div>
+                        <Label className="text-xs text-muted-foreground">Netto Tageszunahmen</Label>
+                        <div className="font-medium text-purple-600">
+                          {formatNumber(netDailyGainGrams, 0)} g/Tag
                         </div>
                       </div>
                     )}

@@ -59,6 +59,8 @@ export default function EditCyclePage() {
   const [expectedWeightPerAnimal, setExpectedWeightPerAnimal] = useState('')
   const [actualWeightPerAnimal, setActualWeightPerAnimal] = useState('')
   const [mortalityRate, setMortalityRate] = useState('')
+  const [totalLifetimeDays, setTotalLifetimeDays] = useState('')
+  const [slaughterWeightKg, setSlaughterWeightKg] = useState('')
 
   // Load existing cycle data
   useEffect(() => {
@@ -89,6 +91,8 @@ export default function EditCyclePage() {
         setExpectedWeightPerAnimal(cycle.expected_weight_per_animal?.toString() || '')
         setActualWeightPerAnimal(cycle.actual_weight_per_animal?.toString() || '')
         setMortalityRate(cycle.mortality_rate?.toString() || '')
+        setTotalLifetimeDays(cycle.total_lifetime_days?.toString() || '')
+        setSlaughterWeightKg(cycle.slaughter_weight_kg?.toString() || '')
 
         // Determine counting mode and load details
         const details = cycle.livestock_count_details || []
@@ -205,6 +209,8 @@ export default function EditCyclePage() {
           expected_weight_per_animal: expectedWeightPerAnimal ? parseFloat(expectedWeightPerAnimal) : null,
           actual_weight_per_animal: actualWeightPerAnimal ? parseFloat(actualWeightPerAnimal) : null,
           mortality_rate: mortalityRate ? parseFloat(mortalityRate) : null,
+          total_lifetime_days: totalLifetimeDays ? parseInt(totalLifetimeDays) : null,
+          slaughter_weight_kg: slaughterWeightKg ? parseFloat(slaughterWeightKg) : null,
         })
         .eq('id', cycleId)
 
@@ -480,6 +486,37 @@ export default function EditCyclePage() {
                   onChange={(e) => setMortalityRate(e.target.value)}
                   placeholder="z.B. 2.5"
                 />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="totalLifetimeDays">Gesamte Lebenstage (optional)</Label>
+                <Input
+                  id="totalLifetimeDays"
+                  type="number"
+                  min="1"
+                  value={totalLifetimeDays}
+                  onChange={(e) => setTotalLifetimeDays(e.target.value)}
+                  placeholder="z.B. 365"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Tage seit Geburt - für Berechnung der Netto Tageszunahmen bei Bullenmast
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="slaughterWeight">Schlachtgewicht (kg, optional)</Label>
+                <Input
+                  id="slaughterWeight"
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={slaughterWeightKg}
+                  onChange={(e) => setSlaughterWeightKg(e.target.value)}
+                  placeholder="z.B. 350.0"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Schlachtgewicht - für Berechnung der Netto Tageszunahmen bei Bullenmast
+                </p>
               </div>
             </div>
           </CardContent>

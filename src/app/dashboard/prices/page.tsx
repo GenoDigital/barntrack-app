@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { useFarmStore } from '@/lib/stores/farm-store'
-import { Plus, Edit, DollarSign, Trash2, Calendar } from 'lucide-react'
+import { Plus, Edit, DollarSign, Trash2, Calendar, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Tables } from '@/lib/database.types'
 
 type PriceTier = Tables<'price_tiers'>
@@ -25,6 +25,9 @@ interface PriceTierWithFeedType extends PriceTier {
   suppliers?: Supplier
 }
 
+type SortField = 'feedType' | 'supplier' | 'price' | 'validFrom' | 'validTo' | 'status'
+type SortDirection = 'asc' | 'desc' | null
+
 export default function PricesPage() {
   const [priceTiers, setPriceTiers] = useState<PriceTierWithFeedType[]>([])
   const [feedTypes, setFeedTypes] = useState<FeedType[]>([])
@@ -32,6 +35,8 @@ export default function PricesPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingPriceTier, setEditingPriceTier] = useState<PriceTierWithFeedType | null>(null)
   const [loading, setLoading] = useState(false)
+  const [sortField, setSortField] = useState<SortField | null>(null)
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null)
   const { currentFarmId } = useFarmStore()
   const supabase = createClient()
 
@@ -188,9 +193,9 @@ export default function PricesPage() {
   }
 
   const formatPrice = (price: number, unit: string) => {
-    const formattedPrice = new Intl.NumberFormat('de-DE', { 
-      minimumFractionDigits: 2, 
-      maximumFractionDigits: 2 
+    const formattedPrice = new Intl.NumberFormat('de-DE', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 3
     }).format(price)
     return `${formattedPrice} €/${unit}`
   }
@@ -203,11 +208,83 @@ export default function PricesPage() {
     const today = new Date().toISOString().split('T')[0]
     const validFrom = priceTier.valid_from
     const validTo = priceTier.valid_to
-    
+
     if (!validFrom || validFrom > today) return false
     if (validTo && validTo < today) return false
-    
+
     return true
+  }
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      // Toggle direction: asc -> desc -> null -> asc
+      if (sortDirection === 'asc') {
+        setSortDirection('desc')
+      } else if (sortDirection === 'desc') {
+        setSortDirection(null)
+        setSortField(null)
+      } else {
+        setSortDirection('asc')
+      }
+    } else {
+      setSortField(field)
+      setSortDirection('asc')
+    }
+  }
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />
+    }
+    if (sortDirection === 'asc') {
+      return <ArrowUp className="h-3 w-3 ml-1" />
+    }
+    if (sortDirection === 'desc') {
+      return <ArrowDown className="h-3 w-3 ml-1" />
+    }
+    return <ArrowUpDown className="h-3 w-3 ml-1 opacity-50" />
+  }
+
+  const getSortedPriceTiers = () => {
+    if (!sortField || !sortDirection) return priceTiers
+
+    return [...priceTiers].sort((a, b) => {
+      let aValue: any
+      let bValue: any
+
+      switch (sortField) {
+        case 'feedType':
+          aValue = a.feed_types.name.toLowerCase()
+          bValue = b.feed_types.name.toLowerCase()
+          break
+        case 'supplier':
+          aValue = a.suppliers?.name?.toLowerCase() || ''
+          bValue = b.suppliers?.name?.toLowerCase() || ''
+          break
+        case 'price':
+          aValue = a.price_per_unit
+          bValue = b.price_per_unit
+          break
+        case 'validFrom':
+          aValue = a.valid_from
+          bValue = b.valid_from
+          break
+        case 'validTo':
+          aValue = a.valid_to || '9999-12-31' // Put null dates at the end
+          bValue = b.valid_to || '9999-12-31'
+          break
+        case 'status':
+          aValue = isCurrentlyActive(a) ? 1 : 0
+          bValue = isCurrentlyActive(b) ? 1 : 0
+          break
+        default:
+          return 0
+      }
+
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1
+      return 0
+    })
   }
 
   return (
@@ -248,17 +325,77 @@ export default function PricesPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Futtermittel</TableHead>
-                  <TableHead>Lieferant</TableHead>
-                  <TableHead>Preis pro Einheit</TableHead>
-                  <TableHead>Gültig von</TableHead>
-                  <TableHead>Gültig bis</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('feedType')}
+                    >
+                      Futtermittel
+                      {getSortIcon('feedType')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('supplier')}
+                    >
+                      Lieferant
+                      {getSortIcon('supplier')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('price')}
+                    >
+                      Preis pro Einheit
+                      {getSortIcon('price')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('validFrom')}
+                    >
+                      Gültig von
+                      {getSortIcon('validFrom')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('validTo')}
+                    >
+                      Gültig bis
+                      {getSortIcon('validTo')}
+                    </Button>
+                  </TableHead>
+                  <TableHead>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 -ml-2 font-medium"
+                      onClick={() => handleSort('status')}
+                    >
+                      Status
+                      {getSortIcon('status')}
+                    </Button>
+                  </TableHead>
                   <TableHead>Aktionen</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {priceTiers.map((priceTier) => (
+                {getSortedPriceTiers().map((priceTier) => (
                   <TableRow key={priceTier.id}>
                     <TableCell className="font-medium">{priceTier.feed_types.name}</TableCell>
                     <TableCell>{priceTier.suppliers?.name || '-'}</TableCell>
@@ -373,11 +510,11 @@ export default function PricesPage() {
                 <Input
                   id="pricePerUnit"
                   type="number"
-                  step="0.01"
+                  step="0.001"
                   min="0"
                   value={pricePerUnit}
                   onChange={(e) => setPricePerUnit(e.target.value)}
-                  placeholder="z.B. 25.50"
+                  placeholder="z.B. 25.500"
                   required
                   disabled={loading}
                 />
