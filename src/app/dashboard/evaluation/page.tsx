@@ -169,9 +169,6 @@ function EvaluationContent() {
   // Chart view mode
   const [chartViewMode, setChartViewMode] = useState<'quantity' | 'cost'>('quantity')
 
-  // Pie chart view mode
-  const [pieChartMode, setPieChartMode] = useState<'quantity' | 'cost'>('cost')
-
   // Weitere Kosten expansion state
   const [showWeitereKosten, setShowWeitereKosten] = useState(false)
 
@@ -1508,10 +1505,7 @@ function EvaluationContent() {
                 <CardDescription>Detaillierte Aufschlüsselung aller verbrauchten Futtermittel mit gewichteten Durchschnittspreisen</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Table Section */}
-                  <div className="lg:col-span-2">
-                    <div className="overflow-x-auto">
+                <div className="overflow-x-auto">
                       <Table className="w-full">
                     <TableHeader>
                       <TableRow>
@@ -1521,6 +1515,8 @@ function EvaluationContent() {
                         <TableHead className="text-right">Ø Preis/Einheit</TableHead>
                         <TableHead className="text-right">Gesamtkosten</TableHead>
                         <TableHead className="text-right">Tagesverbrauch</TableHead>
+                        <TableHead className="text-right">Pro Tier/Tag</TableHead>
+                        <TableHead className="text-right">Pro Tier gesamt</TableHead>
                         <TableHead className="text-right">Anteil %</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -1547,6 +1543,12 @@ function EvaluationContent() {
                             {formatNumber(component.dailyConsumption, 1)} {component.unit}
                           </TableCell>
                           <TableCell className="text-right">
+                            {formatNumber(component.quantityPerAnimalPerDay, 2)} {component.unit}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {formatNumber(component.quantityPerAnimal, 2)} {component.unit}
+                          </TableCell>
+                          <TableCell className="text-right">
                             {formatPercentage(component.percentageOfTotal)}
                           </TableCell>
                         </TableRow>
@@ -1570,129 +1572,16 @@ function EvaluationContent() {
                         <TableCell className="text-right">
                           {formatNumber(feedComponentSummary.reduce((sum, c) => sum + c.dailyConsumption, 0), 1)} kg
                         </TableCell>
+                        <TableCell className="text-right">
+                          {formatNumber(feedComponentSummary.reduce((sum, c) => sum + c.quantityPerAnimalPerDay, 0), 2)} kg
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {formatNumber(feedComponentSummary.reduce((sum, c) => sum + c.quantityPerAnimal, 0), 2)} kg
+                        </TableCell>
                         <TableCell className="text-right">100%</TableCell>
                       </TableRow>
                     </TableBody>
                     </Table>
-                    </div>
-                  </div>
-
-                  {/* Pie Chart Section */}
-                  <div className="lg:col-span-1 flex flex-col gap-4">
-                    {/* Toggle buttons for pie chart */}
-                    <div className="flex gap-2 justify-center">
-                      <Button
-                        variant={pieChartMode === 'quantity' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setPieChartMode('quantity')}
-                      >
-                        Menge
-                      </Button>
-                      <Button
-                        variant={pieChartMode === 'cost' ? 'default' : 'outline'}
-                        size="sm"
-                        onClick={() => setPieChartMode('cost')}
-                      >
-                        Kosten
-                      </Button>
-                    </div>
-
-                    <div className="flex items-center justify-center flex-1">
-                      {(() => {
-                        // Calculate total based on mode
-                        const totalValue = pieChartMode === 'cost'
-                          ? feedComponentSummary.reduce((sum, c) => sum + c.totalCost, 0)
-                          : feedComponentSummary.reduce((sum, c) => sum + c.totalQuantity, 0)
-
-                        // Prepare pie chart data from feedComponentSummary
-                        const pieChartData = feedComponentSummary.map((component, index) => {
-                          const value = pieChartMode === 'cost'
-                            ? component.totalCost
-                            : component.totalQuantity
-                          const percentage = totalValue > 0 ? (value / totalValue) * 100 : 0
-
-                          return {
-                            name: component.feedTypeName,
-                            value: percentage,
-                            fill: `var(--chart-${(index % 5) + 1})`
-                          }
-                        })
-
-                      const chartConfig: ChartConfig = {}
-                      feedComponentSummary.forEach((component, index) => {
-                        chartConfig[component.feedTypeName] = {
-                          label: component.feedTypeName,
-                          color: `var(--chart-${(index % 5) + 1})`
-                        }
-                      })
-
-                      return (
-                        <div className="w-full max-w-[300px]">
-                          <ChartContainer config={chartConfig} className="aspect-square w-full">
-                            <PieChart>
-                              <ChartTooltip
-                                content={({ active, payload }) => {
-                                  if (active && payload && payload.length) {
-                                    return (
-                                      <div className="rounded-lg border bg-background p-2 shadow-sm">
-                                        <div className="grid grid-cols-2 gap-2">
-                                          <div className="font-medium">{payload[0].name}</div>
-                                          <div className="font-bold text-right">{payload[0].value.toFixed(1)}%</div>
-                                        </div>
-                                      </div>
-                                    )
-                                  }
-                                  return null
-                                }}
-                              />
-                              <Pie
-                                data={pieChartData}
-                                dataKey="value"
-                                nameKey="name"
-                                stroke="0"
-                                innerRadius={60}
-                                outerRadius={100}
-                              >
-                                {pieChartData.map((entry, index) => (
-                                  <Cell key={`cell-${index}`} fill={entry.fill} />
-                                ))}
-                                <RechartsLabel
-                                  content={({ viewBox }) => {
-                                    if (viewBox && "cx" in viewBox && "cy" in viewBox) {
-                                      return (
-                                        <text
-                                          x={viewBox.cx}
-                                          y={viewBox.cy}
-                                          textAnchor="middle"
-                                          dominantBaseline="middle"
-                                        >
-                                          <tspan
-                                            x={viewBox.cx}
-                                            y={viewBox.cy}
-                                            className="fill-foreground text-2xl font-bold"
-                                          >
-                                            {feedComponentSummary.length}
-                                          </tspan>
-                                          <tspan
-                                            x={viewBox.cx}
-                                            y={(viewBox.cy || 0) + 24}
-                                            className="fill-muted-foreground text-sm"
-                                          >
-                                            Futtermittel
-                                          </tspan>
-                                        </text>
-                                      )
-                                    }
-                                  }}
-                                />
-                              </Pie>
-                            </PieChart>
-                          </ChartContainer>
-                        </div>
-                      )
-                    })()}
-                    </div>
-                  </div>
                 </div>
 
                 {/* Additional Insights */}

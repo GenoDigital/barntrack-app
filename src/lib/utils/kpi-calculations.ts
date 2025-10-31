@@ -128,6 +128,8 @@ export interface FeedComponentSummary {
   weightedAvgPrice: number
   percentageOfTotal: number
   dailyConsumption: number
+  quantityPerAnimalPerDay: number
+  quantityPerAnimal: number
 }
 
 // ============================================================================
@@ -537,6 +539,16 @@ export function calculateFeedComponentSummary(
 
   const cycleDuration = calculateCycleDuration(cycle.start_date, cycle.end_date)
 
+  // Calculate total animal-days across all livestock count details
+  const totalAnimalDays = cycle.livestock_count_details.reduce((sum, detail) => {
+    const startDate = new Date(detail.start_date)
+    const endDate = detail.end_date
+      ? new Date(detail.end_date)
+      : (cycle.end_date ? new Date(cycle.end_date) : new Date())
+    const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1
+    return sum + (detail.count * days)
+  }, 0)
+
   // Aggregate consumption by feed type
   consumption.forEach(item => {
     const feedTypeId = item.feed_type_id
@@ -549,7 +561,9 @@ export function calculateFeedComponentSummary(
         totalCost: 0,
         weightedAvgPrice: 0,
         percentageOfTotal: 0,
-        dailyConsumption: 0
+        dailyConsumption: 0,
+        quantityPerAnimalPerDay: 0,
+        quantityPerAnimal: 0
       }
     }
 
@@ -569,6 +583,12 @@ export function calculateFeedComponentSummary(
       : 0
     component.dailyConsumption = cycleDuration > 0
       ? component.totalQuantity / cycleDuration
+      : 0
+    component.quantityPerAnimalPerDay = totalAnimalDays > 0
+      ? component.totalQuantity / totalAnimalDays
+      : 0
+    component.quantityPerAnimal = totalAnimalDays > 0 && cycleDuration > 0
+      ? (component.totalQuantity * cycleDuration) / totalAnimalDays
       : 0
   })
 
