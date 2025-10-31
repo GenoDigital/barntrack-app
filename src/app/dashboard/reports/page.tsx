@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useFarmStore } from '@/lib/stores/farm-store'
-import { BarChart, DollarSign, Package, Filter, Download } from 'lucide-react'
+import { BarChart, DollarSign, Package, Filter, Download, Star, Lock } from 'lucide-react'
 import { Tables } from '@/lib/database.types'
 import * as XLSX from 'xlsx'
 import { loadConsumptionWithCosts } from '@/lib/utils/feed-calculations'
@@ -18,6 +18,10 @@ import PivotTableConfig, { PivotConfig, PivotDimension, PivotValue } from '@/com
 import PivotTableView from '@/components/reports/pivot-table-view'
 import { generatePivotTable, ConsumptionDataRow, PivotTableData } from '@/lib/utils/pivot-engine'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { SavePivotDialog } from '@/components/reports/save-pivot-dialog'
+import { PivotConfigSelector } from '@/components/reports/pivot-config-selector'
+import { getSavedPivotConfigs, SavedPivotConfig } from '@/lib/services/pivot-config-service'
+import { toast } from 'sonner'
 
 // Utility function to parse date strings without timezone issues
 // Parses 'YYYY-MM-DD' as local date at midnight, not UTC
@@ -52,11 +56,15 @@ function ReportsContent() {
   const [rawConsumptionData, setRawConsumptionData] = useState<ConsumptionDataRow[]>([])
   const [loading, setLoading] = useState(false)
   const { currentFarmId } = useFarmStore()
-  const { subscription } = useSubscription()
+  const { subscription, planConfig } = useSubscription()
   const supabase = createClient()
 
   // Check if user has export permissions
   const canExport = subscription?.has_advanced_analytics || subscription?.plan_type === 'professional' || subscription?.plan_type === 'enterprise'
+
+  // Check if user can save pivot configs (Professional/Enterprise only)
+  const canSavePivotConfigs = planConfig?.max_pivot_configs_per_farm !== 0
+  const maxPivotConfigs = planConfig?.max_pivot_configs_per_farm ?? 0
 
   // Filter state
   const [startDate, setStartDate] = useState('')
@@ -81,6 +89,37 @@ function ReportsContent() {
     rows: [],
     grandTotals: undefined
   })
+
+  // Saved pivot configs state
+  const [savedPivotConfigs, setSavedPivotConfigs] = useState<SavedPivotConfig[]>([])
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false)
+
+  // Load saved pivot configurations
+  const loadSavedConfigs = useCallback(async () => {
+    if (!currentFarmId) return
+
+    try {
+      const configs = await getSavedPivotConfigs(currentFarmId)
+      setSavedPivotConfigs(configs)
+    } catch (error) {
+      console.error('Error loading saved pivot configs:', error)
+    }
+  }, [currentFarmId])
+
+  // Handle loading a saved configuration
+  const handleLoadConfig = (config: SavedPivotConfig) => {
+    setPivotConfig(config.config)
+    toast.success(`Konfiguration "${config.name}" geladen`)
+  }
+
+  // Handle opening save dialog
+  const handleSaveClick = () => {
+    if (!canSavePivotConfigs) {
+      toast.error('Pivot-Konfigurationen speichern ist nur in Professional und Enterprise Plänen verfügbar')
+      return
+    }
+    setSaveDialogOpen(true)
+  }
 
   // Load reports data
   const loadReports = useCallback(async () => {
@@ -136,8 +175,10 @@ function ReportsContent() {
       const startDate = new Date('2025-09-01')
       setEndDate(endDate.toISOString().split('T')[0])
       setStartDate(startDate.toISOString().split('T')[0])
+      // Load saved configs
+      loadSavedConfigs()
     }
-  }, [currentFarmId])
+  }, [currentFarmId, loadSavedConfigs])
 
   useEffect(() => {
     console.log('useEffect triggered with:', { currentFarmId, startDate, endDate })
@@ -283,6 +324,31 @@ function ReportsContent() {
           </p>
         </div>
         <div className="flex gap-2">
+          {/* Saved configs selector */}
+          {canSavePivotConfigs && savedPivotConfigs.length > 0 && (
+            <PivotConfigSelector
+              configs={savedPivotConfigs}
+              onSelect={handleLoadConfig}
+              onDeleted={loadSavedConfigs}
+            />
+          )}
+
+          {/* Save config button */}
+          <Button
+            onClick={handleSaveClick}
+            variant="outline"
+            disabled={!canSavePivotConfigs}
+            title={!canSavePivotConfigs ? "Nur in Professional/Enterprise Plänen verfügbar" : "Als Favorit speichern"}
+          >
+            {canSavePivotConfigs ? (
+              <Star className="h-4 w-4 mr-2" />
+            ) : (
+              <Lock className="h-4 w-4 mr-2" />
+            )}
+            Als Favorit speichern
+          </Button>
+
+          {/* Excel export button */}
           <Button
             onClick={canExport ? exportPivotToExcel : undefined}
             variant="outline"
@@ -358,6 +424,17 @@ function ReportsContent() {
           />
         </div>
       </div>
+
+      {/* Save Pivot Dialog */}
+      <SavePivotDialog
+        open={saveDialogOpen}
+        onOpenChange={setSaveDialogOpen}
+        config={pivotConfig}
+        farmId={currentFarmId!}
+        maxAllowed={maxPivotConfigs}
+        currentCount={savedPivotConfigs.length}
+        onSaved={loadSavedConfigs}
+      />
     </div>
   )
 }

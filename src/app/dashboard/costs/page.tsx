@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useFarmStore } from '@/lib/stores/farm-store'
-import { Plus, Edit, Trash2, DollarSign, Calendar, FileText } from 'lucide-react'
+import { Plus, Edit, Trash2, DollarSign, Calendar, FileText, Copy } from 'lucide-react'
 import { toast } from 'sonner'
 
 type CostType = {
@@ -287,6 +287,22 @@ export default function CostsPage() {
     setShowCreateDialog(true)
   }
 
+  const handleDuplicate = (transaction: CostTransaction) => {
+    setEditingTransaction(null) // Set to null to create new record
+    setCostTypeId(transaction.cost_type_id)
+    setLivestockCountId(transaction.livestock_count_id || 'none')
+    setSupplierId(transaction.supplier_id || 'none')
+    setTransactionDate(new Date().toISOString().split('T')[0]) // Set to today
+    setAmount(transaction.amount.toString())
+    setQuantity(transaction.quantity?.toString() || '')
+    setUnit(transaction.unit || '')
+    setDescription(transaction.description || '')
+    setInvoiceNumber('') // Clear invoice number to avoid duplicates
+    setSupplierName(transaction.supplier_name || '')
+    setNotes(transaction.notes || '')
+    setShowCreateDialog(true)
+  }
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' }).format(amount)
   }
@@ -433,19 +449,23 @@ export default function CostsPage() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleEdit(transaction)}
-                        className="flex items-center gap-1"
                       >
                         <Edit className="h-3 w-3" />
-                        Bearbeiten
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDuplicate(transaction)}
+                      >
+                        <Copy className="h-3 w-3" />
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => handleDelete(transaction)}
-                        className="flex items-center gap-1 text-red-600 hover:text-red-700"
+                        className="text-red-600 hover:text-red-700"
                       >
                         <Trash2 className="h-3 w-3" />
-                        Löschen
                       </Button>
                     </div>
                   </TableCell>

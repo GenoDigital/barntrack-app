@@ -82,7 +82,16 @@ function formatDimensionValue(value: string, dimension: PivotDimension): string 
         return value
       }
     case 'week':
-      return value // Already formatted as "2025-W40"
+      // Format as "KW 40, 2025"
+      try {
+        const match = value.match(/(\d{4})-W(\d+)/)
+        if (match) {
+          return `KW ${match[2]}, ${match[1]}`
+        }
+        return value
+      } catch {
+        return value
+      }
     case 'month':
       try {
         const [year, month] = value.split('-')
@@ -348,9 +357,17 @@ export function generatePivotTable(
 
     for (const columnKey of columnKeys) {
       const columnParts = columnKey.split('|')
-      const valueIndex = valueConfigs.length > 1
-        ? parseInt(columnParts[columnParts.length - 1].substring(1))
-        : 0
+
+      // Determine value index
+      let valueIndex = 0
+      if (columnDimensions.length === 0) {
+        // No column dimensions, key format is "value_0", "value_1", etc.
+        valueIndex = parseInt(columnKey.substring(6)) // Extract number after "value_"
+      } else if (valueConfigs.length > 1) {
+        // Has column dimensions, extract from last part (e.g., "v0", "v1")
+        valueIndex = parseInt(columnParts[columnParts.length - 1].substring(1))
+      }
+
       const valueConfig = valueConfigs[valueIndex]
 
       // Skip if no value config found
@@ -411,9 +428,17 @@ export function generatePivotTable(
     grandTotals = {}
     for (const columnKey of columnKeys) {
       const columnParts = columnKey.split('|')
-      const valueIndex = valueConfigs.length > 1
-        ? parseInt(columnParts[columnParts.length - 1].substring(1))
-        : 0
+
+      // Determine value index
+      let valueIndex = 0
+      if (columnDimensions.length === 0) {
+        // No column dimensions, key format is "value_0", "value_1", etc.
+        valueIndex = parseInt(columnKey.substring(6)) // Extract number after "value_"
+      } else if (valueConfigs.length > 1) {
+        // Has column dimensions, extract from last part (e.g., "v0", "v1")
+        valueIndex = parseInt(columnParts[columnParts.length - 1].substring(1))
+      }
+
       const valueConfig = valueConfigs[valueIndex]
 
       // Skip if no value config found

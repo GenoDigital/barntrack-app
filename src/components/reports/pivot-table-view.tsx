@@ -4,8 +4,25 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { PivotTableData } from '@/lib/utils/pivot-engine'
-import { PivotConfig } from './pivot-table-config'
+import { PivotConfig, PivotDimension } from './pivot-table-config'
 import { Table as TableIcon } from 'lucide-react'
+
+// German labels for dimensions
+const DIMENSION_LABELS: Record<PivotDimension, string> = {
+  'date': 'Tag',
+  'week': 'Woche',
+  'month': 'Monat',
+  'quarter': 'Quartal',
+  'year': 'Jahr',
+  'feed_type': 'Futtermittel',
+  'area': 'Bereich',
+  'area_group': 'Bereichsgruppe',
+  'supplier': 'Lieferant'
+}
+
+function getDimensionLabel(dimension: PivotDimension): string {
+  return DIMENSION_LABELS[dimension] || dimension
+}
 
 interface PivotTableViewProps {
   data: PivotTableData
@@ -81,7 +98,7 @@ export default function PivotTableView({ data, config, loading }: PivotTableView
                               <div className="flex flex-wrap gap-1">
                                 {config.rows.map(dim => (
                                   <Badge key={dim} variant="secondary" className="text-xs">
-                                    {dim}
+                                    {getDimensionLabel(dim)}
                                   </Badge>
                                 ))}
                               </div>
@@ -138,7 +155,7 @@ export default function PivotTableView({ data, config, loading }: PivotTableView
                     {/* Row dimension headers */}
                     {config.rows.map((dim) => (
                       <TableHead key={dim} className="border-r bg-muted/50 font-semibold">
-                        {dim}
+                        {getDimensionLabel(dim)}
                       </TableHead>
                     ))}
                     {/* Value headers */}

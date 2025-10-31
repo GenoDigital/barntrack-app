@@ -26,6 +26,7 @@ interface PlanConfiguration {
   max_uploads_per_month: number
   max_storage_gb: number
   max_dashboards_per_farm: number
+  max_pivot_configs_per_farm: number
   can_invite_users: boolean
   has_advanced_analytics: boolean
   has_api_access: boolean
@@ -121,6 +122,7 @@ export function useSubscription() {
       maxUploadsPerMonth: planConfig.max_uploads_per_month === -1 ? 'Unbegrenzt' : (planConfig.max_uploads_per_month?.toString() ?? '-'),
       maxStorageGb: planConfig.max_storage_gb === -1 ? 'Unbegrenzt' : (planConfig.max_storage_gb?.toString() ?? '-'),
       maxDashboardsPerFarm: planConfig.max_dashboards_per_farm === -1 ? 'Unbegrenzt' : (planConfig.max_dashboards_per_farm?.toString() ?? '-'),
+      maxPivotConfigsPerFarm: planConfig.max_pivot_configs_per_farm === -1 ? 'Unbegrenzt' : (planConfig.max_pivot_configs_per_farm?.toString() ?? '-'),
       canInviteUsers: planConfig.can_invite_users ?? false,
       hasAdvancedAnalytics: planConfig.has_advanced_analytics ?? false,
       hasApiAccess: planConfig.has_api_access ?? false,
