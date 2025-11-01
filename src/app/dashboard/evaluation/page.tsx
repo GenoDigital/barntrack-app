@@ -1511,7 +1511,6 @@ function EvaluationContent() {
                       <TableRow>
                         <TableHead>Futtermittel</TableHead>
                         <TableHead className="text-right">Gesamtmenge</TableHead>
-                        <TableHead className="text-right">Einheit</TableHead>
                         <TableHead className="text-right">Ø Preis/Einheit</TableHead>
                         <TableHead className="text-right">Gesamtkosten</TableHead>
                         <TableHead className="text-right">Tagesverbrauch</TableHead>
@@ -1530,9 +1529,8 @@ function EvaluationContent() {
                             </div>
                           </TableCell>
                           <TableCell className="text-right font-medium">
-                            {formatNumber(component.totalQuantity, 0)}
+                            {formatNumber(component.totalQuantity, 0)} {component.unit}
                           </TableCell>
-                          <TableCell className="text-right">{component.unit}</TableCell>
                           <TableCell className="text-right">
                             {formatCurrency(component.weightedAvgPrice)}
                           </TableCell>
@@ -1556,9 +1554,8 @@ function EvaluationContent() {
                       <TableRow className="font-bold border-t-2">
                         <TableCell>Gesamt</TableCell>
                         <TableCell className="text-right">
-                          {formatNumber(feedComponentSummary.reduce((sum, c) => sum + c.totalQuantity, 0), 0)}
+                          {formatNumber(feedComponentSummary.reduce((sum, c) => sum + c.totalQuantity, 0), 0)} kg
                         </TableCell>
-                        <TableCell className="text-right">-</TableCell>
                         <TableCell className="text-right">
                           {(() => {
                             const totalQuantity = feedComponentSummary.reduce((sum, c) => sum + c.totalQuantity, 0)
