@@ -652,34 +652,55 @@ export type Database = {
       }
       livestock_count_details: {
         Row: {
+          actual_weight_per_animal: number | null
           animal_type: string | null
           area_group_id: string | null
           area_id: string | null
+          buy_price_per_animal: number | null
           count: number
           end_date: string | null
+          expected_weight_per_animal: number | null
           id: string
+          is_end_group: boolean | null
+          is_start_group: boolean | null
           livestock_count_id: string
+          sell_price_per_animal: number | null
           start_date: string
+          start_weight_source_detail_id: string | null
         }
         Insert: {
+          actual_weight_per_animal?: number | null
           animal_type?: string | null
           area_group_id?: string | null
           area_id?: string | null
+          buy_price_per_animal?: number | null
           count: number
           end_date?: string | null
+          expected_weight_per_animal?: number | null
           id?: string
+          is_end_group?: boolean | null
+          is_start_group?: boolean | null
           livestock_count_id: string
+          sell_price_per_animal?: number | null
           start_date: string
+          start_weight_source_detail_id?: string | null
         }
         Update: {
+          actual_weight_per_animal?: number | null
           animal_type?: string | null
           area_group_id?: string | null
           area_id?: string | null
+          buy_price_per_animal?: number | null
           count?: number
           end_date?: string | null
+          expected_weight_per_animal?: number | null
           id?: string
+          is_end_group?: boolean | null
+          is_start_group?: boolean | null
           livestock_count_id?: string
+          sell_price_per_animal?: number | null
           start_date?: string
+          start_weight_source_detail_id?: string | null
         }
         Relationships: [
           {
@@ -701,6 +722,13 @@ export type Database = {
             columns: ["livestock_count_id"]
             isOneToOne: false
             referencedRelation: "livestock_counts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "livestock_count_details_start_weight_source_detail_id_fkey"
+            columns: ["start_weight_source_detail_id"]
+            isOneToOne: false
+            referencedRelation: "livestock_count_details"
             referencedColumns: ["id"]
           },
         ]
@@ -809,6 +837,7 @@ export type Database = {
           is_active: boolean
           max_dashboards_per_farm: number
           max_farms: number
+          max_pivot_configs_per_farm: number
           max_storage_gb: number | null
           max_uploads_per_month: number | null
           max_users_per_farm: number
@@ -836,6 +865,7 @@ export type Database = {
           is_active?: boolean
           max_dashboards_per_farm?: number
           max_farms?: number
+          max_pivot_configs_per_farm?: number
           max_storage_gb?: number | null
           max_uploads_per_month?: number | null
           max_users_per_farm?: number
@@ -863,6 +893,7 @@ export type Database = {
           is_active?: boolean
           max_dashboards_per_farm?: number
           max_farms?: number
+          max_pivot_configs_per_farm?: number
           max_storage_gb?: number | null
           max_uploads_per_month?: number | null
           max_users_per_farm?: number
@@ -966,6 +997,50 @@ export type Database = {
             columns: ["supplier_id"]
             isOneToOne: false
             referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      saved_pivot_configs: {
+        Row: {
+          config: Json
+          created_at: string | null
+          created_by: string
+          description: string | null
+          farm_id: string
+          id: string
+          is_favorite: boolean | null
+          name: string
+          updated_at: string | null
+        }
+        Insert: {
+          config: Json
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          farm_id: string
+          id?: string
+          is_favorite?: boolean | null
+          name: string
+          updated_at?: string | null
+        }
+        Update: {
+          config?: Json
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          farm_id?: string
+          id?: string
+          is_favorite?: boolean | null
+          name?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "saved_pivot_configs_farm_id_fkey"
+            columns: ["farm_id"]
+            isOneToOne: false
+            referencedRelation: "farms"
             referencedColumns: ["id"]
           },
         ]

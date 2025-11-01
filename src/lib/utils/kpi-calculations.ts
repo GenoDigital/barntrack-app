@@ -15,12 +15,20 @@ import { calculateTotalAnimalsFromDetails, calculateCycleDuration } from './live
 // ============================================================================
 
 export interface LivestockCountDetail {
+  id?: string
   count: number
   start_date: string
   end_date: string | null
   area_id: string | null
   area_group_id: string | null
   animal_type?: string | null
+  expected_weight_per_animal?: number | null
+  actual_weight_per_animal?: number | null
+  buy_price_per_animal?: number | null
+  sell_price_per_animal?: number | null
+  is_start_group?: boolean | null
+  is_end_group?: boolean | null
+  start_weight_source_detail_id?: string | null
   areas?: {
     id: string
     name: string
@@ -117,6 +125,10 @@ export interface AreaMetrics {
   profitLossDirectPerAnimal: number
   profitLossFullPerAnimal: number
   feedTypes: { [key: string]: { quantity: number; cost: number; name: string } }
+  startWeight: number | null
+  endWeight: number | null
+  weightGain: number | null
+  weightSource?: string
 }
 
 export interface FeedComponentSummary {
@@ -130,6 +142,164 @@ export interface FeedComponentSummary {
   dailyConsumption: number
   quantityPerAnimalPerDay: number
   quantityPerAnimal: number
+}
+
+// ============================================================================
+// FALLBACK LOGIC FOR DETAIL-LEVEL VALUES
+// ============================================================================
+
+/**
+ * Gets the effective start weight for a livestock count detail with advanced chaining logic
+ *
+ * Priority order:
+ * 1. Direct value on detail (expected_weight_per_animal)
+ * 2. Inherited from source detail (start_weight_source_detail_id → source.actual_weight_per_animal)
+ * 3. Automatic for end-groups: weighted average of all start-groups
+ * 4. Cycle-level fallback (cycle.expected_weight_per_animal)
+ *
+ * @param detail - The livestock count detail
+ * @param allDetails - All details in the cycle (for chaining logic)
+ * @param cycle - The parent livestock count (cycle)
+ * @returns The effective start weight, or null if not available at any level
+ */
+export function getEffectiveStartWeight(
+  detail: LivestockCountDetail,
+  allDetails: LivestockCountDetail[],
+  cycle: LivestockCount
+): number | null {
+  // 1. Use detail-level value if directly set
+  if (detail.expected_weight_per_animal !== null && detail.expected_weight_per_animal !== undefined) {
+    return detail.expected_weight_per_animal
+  }
+
+  // 2. Inherit from explicitly linked source detail
+  if (detail.start_weight_source_detail_id) {
+    const sourceDetail = allDetails.find(d => d.id === detail.start_weight_source_detail_id)
+    if (sourceDetail) {
+      // IMPORTANT: Use ONLY the end weight (actual_weight_per_animal) of the source detail
+      // Do NOT fall back to expected_weight (that's the START weight, not END weight!)
+      // If source has no end weight, the chain is incomplete - fall through to next logic
+      if (sourceDetail.actual_weight_per_animal !== null && sourceDetail.actual_weight_per_animal !== undefined) {
+        return sourceDetail.actual_weight_per_animal
+      }
+      // Source has no end weight - chain is incomplete
+      // Fall through to automatic logic or cycle fallback
+    }
+  }
+
+  // 3. Automatic logic for end-groups without explicit start weight
+  if (detail.is_end_group && !detail.is_start_group) {
+    // Find all start-groups that have a start weight
+    const startGroups = allDetails.filter(d =>
+      d.is_start_group &&
+      d.expected_weight_per_animal !== null &&
+      d.expected_weight_per_animal !== undefined
+    )
+
+    if (startGroups.length > 0) {
+      // Calculate weighted average of start weights
+      const totalWeightedWeight = startGroups.reduce((sum, g) =>
+        sum + (g.expected_weight_per_animal! * g.count), 0
+      )
+      const totalCount = startGroups.reduce((sum, g) => sum + g.count, 0)
+
+      if (totalCount > 0) {
+        return totalWeightedWeight / totalCount
+      }
+    }
+  }
+
+  // 4. Fall back to cycle-level value
+  if (cycle.expected_weight_per_animal !== null && cycle.expected_weight_per_animal !== undefined) {
+    return cycle.expected_weight_per_animal
+  }
+
+  // 5. No value available at any level
+  return null
+}
+
+/**
+ * Gets the effective end weight for a livestock count detail
+ *
+ * Priority order:
+ * 1. Direct value on detail (actual_weight_per_animal)
+ * 2. Cycle-level fallback (cycle.actual_weight_per_animal)
+ *
+ * Note: End weights are typically not chained since final weighing happens at the end.
+ * However, the function signature matches getEffectiveStartWeight for consistency.
+ *
+ * @param detail - The livestock count detail
+ * @param allDetails - All details in the cycle (for potential future chaining)
+ * @param cycle - The parent livestock count (cycle)
+ * @returns The effective end weight, or null if not available at any level
+ */
+export function getEffectiveEndWeight(
+  detail: LivestockCountDetail,
+  allDetails: LivestockCountDetail[],
+  cycle: LivestockCount
+): number | null {
+  // 1. Use detail-level value if set
+  if (detail.actual_weight_per_animal !== null && detail.actual_weight_per_animal !== undefined) {
+    return detail.actual_weight_per_animal
+  }
+
+  // 2. Fall back to cycle-level value if set
+  if (cycle.actual_weight_per_animal !== null && cycle.actual_weight_per_animal !== undefined) {
+    return cycle.actual_weight_per_animal
+  }
+
+  // 3. No value available at any level
+  return null
+}
+
+/**
+ * Gets the buy price for a livestock count detail, with fallback to cycle-level value
+ *
+ * @param detail - The livestock count detail
+ * @param cycle - The parent livestock count (cycle)
+ * @returns The buy price per animal, or null if not available at any level
+ */
+export function getDetailBuyPrice(
+  detail: LivestockCountDetail,
+  cycle: LivestockCount
+): number | null {
+  // 1. Use detail-level value if set
+  if (detail.buy_price_per_animal !== null && detail.buy_price_per_animal !== undefined) {
+    return detail.buy_price_per_animal
+  }
+
+  // 2. Fall back to cycle-level value if set
+  if (cycle.buy_price_per_animal !== null && cycle.buy_price_per_animal !== undefined) {
+    return cycle.buy_price_per_animal
+  }
+
+  // 3. No value available at any level
+  return null
+}
+
+/**
+ * Gets the sell price for a livestock count detail, with fallback to cycle-level value
+ *
+ * @param detail - The livestock count detail
+ * @param cycle - The parent livestock count (cycle)
+ * @returns The sell price per animal, or null if not available at any level
+ */
+export function getDetailSellPrice(
+  detail: LivestockCountDetail,
+  cycle: LivestockCount
+): number | null {
+  // 1. Use detail-level value if set
+  if (detail.sell_price_per_animal !== null && detail.sell_price_per_animal !== undefined) {
+    return detail.sell_price_per_animal
+  }
+
+  // 2. Fall back to cycle-level value if set
+  if (cycle.sell_price_per_animal !== null && cycle.sell_price_per_animal !== undefined) {
+    return cycle.sell_price_per_animal
+  }
+
+  // 3. No value available at any level
+  return null
 }
 
 // ============================================================================
@@ -230,9 +400,30 @@ export function calculateCycleMetrics(
     cycle.end_date
   )
 
-  // Weight calculations
-  const startWeight = cycle.expected_weight_per_animal || 0
-  const endWeight = cycle.actual_weight_per_animal || 0
+  // Weight calculations - use detail-level values with fallback
+  // Calculate weighted average weight gain based on animal counts in each detail
+  let totalWeightedStartWeight = 0
+  let totalWeightedEndWeight = 0
+  let totalAnimalsWithWeights = 0
+
+  cycle.livestock_count_details.forEach(detail => {
+    const startWeight = getEffectiveStartWeight(detail, cycle.livestock_count_details, cycle)
+    const endWeight = getEffectiveEndWeight(detail, cycle.livestock_count_details, cycle)
+
+    // Only include details where we have both weights for weight gain calculation
+    if (startWeight !== null && endWeight !== null) {
+      totalWeightedStartWeight += startWeight * detail.count
+      totalWeightedEndWeight += endWeight * detail.count
+      totalAnimalsWithWeights += detail.count
+    }
+  })
+
+  const startWeight = totalAnimalsWithWeights > 0
+    ? totalWeightedStartWeight / totalAnimalsWithWeights
+    : (cycle.expected_weight_per_animal || 0)
+  const endWeight = totalAnimalsWithWeights > 0
+    ? totalWeightedEndWeight / totalAnimalsWithWeights
+    : (cycle.actual_weight_per_animal || 0)
   const weightGain = endWeight - startWeight
 
   // Filter consumption to only include items from areas/groups during their active timeframes
@@ -248,25 +439,47 @@ export function calculateCycleMetrics(
 
   // Additional cost calculations
   const additionalCosts = costTransactions.reduce((sum, transaction) => sum + transaction.amount, 0)
-  const animalPurchaseCost = totalAnimals * (cycle.buy_price_per_animal || 0)
+
+  // Calculate animal purchase cost and revenue using detail-level prices
+  let animalPurchaseCost = 0
+  let totalRevenue = 0
+
+  cycle.livestock_count_details.forEach(detail => {
+    const buyPrice = getDetailBuyPrice(detail, cycle)
+    const sellPrice = getDetailSellPrice(detail, cycle)
+
+    if (buyPrice !== null) {
+      animalPurchaseCost += detail.count * buyPrice
+    }
+    if (sellPrice !== null) {
+      totalRevenue += detail.count * sellPrice
+    }
+  })
 
   // Cycle duration
   const cycleDuration = calculateCycleDuration(cycle.start_date, cycle.end_date)
 
-  // Total cost and revenue
+  // Total cost
   const totalCosts = totalFeedCost + additionalCosts + animalPurchaseCost
-  const totalRevenue = totalAnimals * (cycle.sell_price_per_animal || 0)
 
   // Profit calculations
   const profitLoss = totalRevenue - totalCosts
   const profitMargin = totalRevenue > 0 ? (profitLoss / totalRevenue) * 100 : 0
 
   // Performance metrics
-  const feedConversionRatio = weightGain > 0 ? totalFeedQuantity / (totalAnimals * weightGain) : 0
+  // Note: Use totalAnimalsWithWeights (animals with complete weight data) for weight-based calculations
+  // This ensures we only calculate ratios for animals where we can measure weight gain
+  const feedConversionRatio = weightGain > 0 && totalAnimalsWithWeights > 0
+    ? totalFeedQuantity / (totalAnimalsWithWeights * weightGain)
+    : 0
   const feedCostPerAnimal = totalAnimals > 0 ? totalFeedCost / totalAnimals : 0
-  const feedCostPerKg = weightGain > 0 ? totalFeedCost / (totalAnimals * weightGain) : 0
+  const feedCostPerKg = weightGain > 0 && totalAnimalsWithWeights > 0
+    ? totalFeedCost / (totalAnimalsWithWeights * weightGain)
+    : 0
   const dailyFeedCost = cycleDuration > 0 ? totalFeedCost / cycleDuration : 0
-  const feedEfficiency = totalFeedCost > 0 ? (totalAnimals * weightGain) / totalFeedCost : 0
+  const feedEfficiency = totalFeedCost > 0 && totalAnimalsWithWeights > 0
+    ? (totalAnimalsWithWeights * weightGain) / totalFeedCost
+    : 0
 
   // Daily gain calculations
   // Daily gains (Zunahmen pro Tag): weight gain per day in grams
@@ -371,7 +584,10 @@ export function calculateAreaMetrics(
         percentageOfTotal: 0,
         profitLossDirectPerAnimal: 0,
         profitLossFullPerAnimal: 0,
-        feedTypes: {}
+        feedTypes: {},
+        startWeight: null,
+        endWeight: null,
+        weightGain: null,
       }
     }
     // Handle group-level tracking
@@ -392,7 +608,10 @@ export function calculateAreaMetrics(
           percentageOfTotal: 0,
           profitLossDirectPerAnimal: 0,
           profitLossFullPerAnimal: 0,
-          feedTypes: {}
+          feedTypes: {},
+          startWeight: null,
+          endWeight: null,
+          weightGain: null,
         }
       }
     }
@@ -473,7 +692,6 @@ export function calculateAreaMetrics(
 
   // Calculate derived metrics
   const totalFeedCost = Object.values(areaMetricsMap).reduce((sum, area) => sum + area.totalFeedCost, 0)
-  const weightGain = (cycle.actual_weight_per_animal || 0) - (cycle.expected_weight_per_animal || 0)
 
   // Calculate total additional costs from cost transactions
   const totalAdditionalCosts = costTransactions.reduce((sum, transaction) => sum + transaction.amount, 0)
@@ -482,16 +700,47 @@ export function calculateAreaMetrics(
   const totalAnimals = Object.values(areaMetricsMap).reduce((sum, area) => sum + area.animalCount, 0)
 
   Object.values(areaMetricsMap).forEach(area => {
+    // Find the corresponding detail for this area to get weights and prices
+    const areaDetail = cycle.livestock_count_details.find(d => {
+      if (d.area_id === area.areaId) return true
+      if (d.area_group_id === area.areaId) return true
+      return false
+    })
+
+    // Get weights using fallback logic with chaining support
+    const startWeight = areaDetail ? getEffectiveStartWeight(areaDetail, cycle.livestock_count_details, cycle) : null
+    const endWeight = areaDetail ? getEffectiveEndWeight(areaDetail, cycle.livestock_count_details, cycle) : null
+    const weightGain = (startWeight !== null && endWeight !== null) ? endWeight - startWeight : 0
+
+    // Store weights in area metrics for display
+    area.startWeight = startWeight
+    area.endWeight = endWeight
+    area.weightGain = weightGain > 0 ? weightGain : null
+
+    // Determine weight source for UI display
+    if (areaDetail) {
+      if (areaDetail.expected_weight_per_animal !== null && areaDetail.expected_weight_per_animal !== undefined) {
+        area.weightSource = 'Direkt'
+      } else if (areaDetail.start_weight_source_detail_id) {
+        const source = cycle.livestock_count_details.find(d => d.id === areaDetail.start_weight_source_detail_id)
+        area.weightSource = source ? `🔗 ${source.areas?.name || source.area_groups?.name || 'Verknüpft'}` : 'Verknüpft'
+      } else if (areaDetail.is_end_group && !areaDetail.is_start_group && startWeight !== null) {
+        area.weightSource = 'Auto (Start-Bereiche)'
+      } else if (startWeight === cycle.expected_weight_per_animal) {
+        area.weightSource = 'Standard'
+      }
+    }
+
+    // Get prices using fallback logic
+    const buyPricePerAnimal = areaDetail ? (getDetailBuyPrice(areaDetail, cycle) || 0) : 0
+    const sellPricePerAnimal = areaDetail ? (getDetailSellPrice(areaDetail, cycle) || 0) : 0
+
     area.feedCostPerAnimal = area.animalCount > 0 ? area.totalFeedCost / area.animalCount : 0
     area.feedCostPerDay = cycleDuration > 0 ? area.totalFeedCost / cycleDuration : 0
     area.feedCostPerKg = weightGain > 0 && area.animalCount > 0
       ? area.totalFeedCost / (area.animalCount * weightGain)
       : 0
     area.percentageOfTotal = totalFeedCost > 0 ? (area.totalFeedCost / totalFeedCost) * 100 : 0
-
-    // Calculate total cost per animal and profit/loss measures
-    const buyPricePerAnimal = cycle.buy_price_per_animal || 0
-    const sellPricePerAnimal = cycle.sell_price_per_animal || 0
 
     // Calculate proportional share of additional costs based on animal count
     const animalShare = totalAnimals > 0 ? area.animalCount / totalAnimals : 0
@@ -587,9 +836,10 @@ export function calculateFeedComponentSummary(
     component.quantityPerAnimalPerDay = totalAnimalDays > 0
       ? component.totalQuantity / totalAnimalDays
       : 0
-    component.quantityPerAnimal = totalAnimalDays > 0 && cycleDuration > 0
-      ? (component.totalQuantity * cycleDuration) / totalAnimalDays
-      : 0
+    // quantityPerAnimal is the total feed quantity per animal over the entire cycle
+    // Mathematically equivalent to: (totalQuantity * cycleDuration) / totalAnimalDays
+    // But clearer as: quantityPerAnimalPerDay * cycleDuration
+    component.quantityPerAnimal = component.quantityPerAnimalPerDay * cycleDuration
   })
 
   // Sort by total cost descending

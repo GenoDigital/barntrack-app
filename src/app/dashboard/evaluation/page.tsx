@@ -383,6 +383,47 @@ function EvaluationContent() {
     setFeedComponentSummary(summary)
   }
 
+  const getMissingDateRanges = (dates: string[] | undefined): Array<{start: string, end: string, count: number}> => {
+    if (!dates || dates.length === 0) return []
+
+    const sorted = [...dates].sort()
+    const ranges: Array<{start: string, end: string, count: number}> = []
+
+    let rangeStart = sorted[0]
+    let rangeEnd = sorted[0]
+
+    for (let i = 1; i < sorted.length; i++) {
+      const prevDate = new Date(sorted[i-1])
+      const currDate = new Date(sorted[i])
+      const daysDiff = Math.ceil((currDate.getTime() - prevDate.getTime()) / (1000*60*60*24))
+
+      if (daysDiff === 1) {
+        // Consecutive day
+        rangeEnd = sorted[i]
+      } else {
+        // Gap - save current range and start new one
+        const rangeCount = Math.ceil((new Date(rangeEnd).getTime() - new Date(rangeStart).getTime()) / (1000*60*60*24)) + 1
+        ranges.push({
+          start: rangeStart,
+          end: rangeEnd,
+          count: rangeCount
+        })
+        rangeStart = sorted[i]
+        rangeEnd = sorted[i]
+      }
+    }
+
+    // Add final range
+    const rangeCount = Math.ceil((new Date(rangeEnd).getTime() - new Date(rangeStart).getTime()) / (1000*60*60*24)) + 1
+    ranges.push({
+      start: rangeStart,
+      end: rangeEnd,
+      count: rangeCount
+    })
+
+    return ranges
+  }
+
   const detectDataQualityIssues = (durchgang: LivestockCountWithDetails, consumption: ConsumptionData[]) => {
     const missingFeedDays: Array<{
       areaId: string
@@ -390,6 +431,7 @@ function EvaluationContent() {
       missingDays: number
       totalDays: number
       dateRange: string
+      missingDates: string[]
     }> = []
 
     const missingPrices: Array<{
@@ -432,19 +474,29 @@ function EvaluationContent() {
         }
       })
 
-      // Calculate missing days
-      const missingDays = totalDays - consumptionDates.size
+      // Generate all expected dates and find missing ones
+      const missingDates: string[] = []
+      const currentDate = new Date(startDate)
 
-      if (missingDays > 0) {
+      while (currentDate <= endDate) {
+        const dateString = currentDate.toISOString().split('T')[0]
+        if (!consumptionDates.has(dateString)) {
+          missingDates.push(dateString)
+        }
+        currentDate.setDate(currentDate.getDate() + 1)
+      }
+
+      if (missingDates.length > 0) {
         const areaName = detail.areas?.name || detail.area_groups?.name || 'Unbekannt'
         const areaId = detail.area_id || detail.area_group_id || 'unknown'
 
         missingFeedDays.push({
           areaId,
           areaName,
-          missingDays,
+          missingDays: missingDates.length,
           totalDays,
-          dateRange: `${format(startDate, 'dd.MM.yyyy', { locale: de })} - ${format(endDate, 'dd.MM.yyyy', { locale: de })}`
+          dateRange: `${format(startDate, 'dd.MM.yyyy', { locale: de })} - ${format(endDate, 'dd.MM.yyyy', { locale: de })}`,
+          missingDates: missingDates
         })
       }
     })
@@ -608,10 +660,10 @@ function EvaluationContent() {
             Detaillierte Analyse und Kennzahlen für Ihre Tierdurchgänge
           </p>
         </div>
-        <div className="flex gap-4">
-          <div className="w-80">
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          <div className="w-full sm:flex-1 sm:min-w-0 sm:max-w-md">
             <Select value={selectedDurchgang} onValueChange={setSelectedDurchgang}>
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue placeholder="Durchgang auswählen" />
               </SelectTrigger>
               <SelectContent>
@@ -628,7 +680,7 @@ function EvaluationContent() {
             <Button
               variant="outline"
               onClick={() => setShowGroupFilter(!showGroupFilter)}
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 shrink-0"
             >
               <Filter className="h-4 w-4" />
               {selectedGroups.length > 0 ? `${selectedGroups.length} Gruppen` : 'Filter'}
@@ -761,18 +813,43 @@ function EvaluationContent() {
                     <ChevronDown className={`ml-2 h-4 w-4 transition-transform ${showMissingFeedDetails ? 'rotate-180' : ''}`} />
                   </Button>
                   {showMissingFeedDetails && (
-                    <div className="mt-3 space-y-2 rounded-lg bg-white/50 dark:bg-black/20 p-3">
-                      {dataQualityIssues.missingFeedDays.map((issue) => (
-                        <div key={issue.areaId} className="flex justify-between items-start border-b pb-2 last:border-0">
-                          <div>
-                            <div className="font-medium">{issue.areaName}</div>
-                            <div className="text-sm text-muted-foreground">{issue.dateRange}</div>
+                    <div className="mt-3 space-y-3 rounded-lg bg-white/50 dark:bg-black/20 p-3">
+                      {dataQualityIssues.missingFeedDays.map((issue) => {
+                        const dateRanges = getMissingDateRanges(issue.missingDates)
+                        return (
+                          <div key={issue.areaId} className="border rounded-md p-3 bg-background">
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <div className="font-medium">{issue.areaName}</div>
+                                <div className="text-sm text-muted-foreground">{issue.dateRange}</div>
+                              </div>
+                              <Badge variant="outline" className="bg-orange-100 dark:bg-orange-900/30">
+                                {issue.missingDays} von {issue.totalDays} Tagen
+                              </Badge>
+                            </div>
+
+                            {dateRanges.length > 0 && (
+                              <div className="mt-3 pt-3 border-t">
+                                <div className="text-sm font-medium mb-2">📋 Fehlende Zeiträume:</div>
+                                <div className="space-y-1.5">
+                                  {dateRanges.map((range, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 text-xs">
+                                      <Badge variant="outline" className="bg-orange-50 dark:bg-orange-950/30">
+                                        {range.start === range.end
+                                          ? format(new Date(range.start), 'dd.MM.yyyy', { locale: de })
+                                          : `${format(new Date(range.start), 'dd.MM', { locale: de })} - ${format(new Date(range.end), 'dd.MM.yyyy', { locale: de })}`}
+                                      </Badge>
+                                      <span className="text-muted-foreground">
+                                        ({range.count} Tag{range.count > 1 ? 'e' : ''})
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
-                          <Badge variant="outline" className="bg-orange-100 dark:bg-orange-900/30">
-                            {issue.missingDays} von {issue.totalDays} Tagen
-                          </Badge>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -1637,7 +1714,6 @@ function EvaluationContent() {
                     <div className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
                         <p className="font-medium">Futterverwertung</p>
-                        <p className="text-sm text-muted-foreground">Ziel: 2.5 - 3.0</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold">{formatNumber(metrics.feedConversionRatio, 2)}</span>
@@ -1652,7 +1728,6 @@ function EvaluationContent() {
                     <div className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
                         <p className="font-medium">Mortalitätsrate</p>
-                        <p className="text-sm text-muted-foreground">Ziel: &lt; 3%</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold">{formatPercentage(metrics.mortalityRate)}</span>
@@ -1667,7 +1742,6 @@ function EvaluationContent() {
                     <div className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
                         <p className="font-medium">Gewinnmarge</p>
-                        <p className="text-sm text-muted-foreground">Ziel: &gt; 10%</p>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold">{formatPercentage(metrics.profitMargin)}</span>
@@ -1724,6 +1798,9 @@ function EvaluationContent() {
                           <TableHead>Gruppe</TableHead>
                           <TableHead>Zeitraum</TableHead>
                           <TableHead>Tier-Tage</TableHead>
+                          <TableHead className="text-right">Start</TableHead>
+                          <TableHead className="text-right">Ende</TableHead>
+                          <TableHead className="text-right">Zunahme</TableHead>
                           <TableHead className="text-right">Futtermenge (kg)</TableHead>
                           <TableHead className="text-right">Menge/Tier/Tag (kg)</TableHead>
                           <TableHead className="text-right">Futterkosten</TableHead>
@@ -1788,16 +1865,39 @@ function EvaluationContent() {
 
                           let totalFeedQuantity = 0
                           let totalFeedCost = 0
+                          let groupStartWeight: number | null = null
+                          let groupEndWeight: number | null = null
+                          let groupWeightGain: number | null = null
+                          let groupWeightSource: string | undefined = undefined
 
                           if (groupLevelEntry) {
                             // Group-level tracking: use the single group entry
                             totalFeedQuantity = groupLevelEntry.totalFeedQuantity
                             totalFeedCost = groupLevelEntry.totalFeedCost
+                            groupStartWeight = groupLevelEntry.startWeight
+                            groupEndWeight = groupLevelEntry.endWeight
+                            groupWeightGain = groupLevelEntry.weightGain
+                            groupWeightSource = groupLevelEntry.weightSource
                           } else {
                             // Area-level tracking: aggregate individual areas in the group
                             const groupAreas = areaMetrics.filter(area => groupAreaIds.includes(area.areaId))
                             totalFeedQuantity = groupAreas.reduce((sum, area) => sum + area.totalFeedQuantity, 0)
                             totalFeedCost = groupAreas.reduce((sum, area) => sum + area.totalFeedCost, 0)
+
+                            // Calculate weighted average weights for aggregated areas
+                            const areasWithWeights = groupAreas.filter(a => a.startWeight !== null && a.endWeight !== null)
+                            if (areasWithWeights.length > 0) {
+                              const totalAnimalsInAreas = areasWithWeights.reduce((sum, a) => sum + a.animalCount, 0)
+                              if (totalAnimalsInAreas > 0) {
+                                groupStartWeight = areasWithWeights.reduce((sum, a) =>
+                                  sum + (a.startWeight! * a.animalCount), 0
+                                ) / totalAnimalsInAreas
+                                groupEndWeight = areasWithWeights.reduce((sum, a) =>
+                                  sum + (a.endWeight! * a.animalCount), 0
+                                ) / totalAnimalsInAreas
+                                groupWeightGain = groupEndWeight - groupStartWeight
+                              }
+                            }
                           }
 
                           // Calculate cost per animal-day
@@ -1840,6 +1940,26 @@ function EvaluationContent() {
                                   <div>{formatNumber(totalAnimalDays, 0)} Tier-Tage</div>
                                   <div className="text-xs text-muted-foreground">{groupDetails.length} Zeiträume</div>
                                 </div>
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {groupStartWeight !== null ? (
+                                  <div className="space-y-0.5">
+                                    <div>{formatNumber(groupStartWeight, 1)} kg</div>
+                                    {groupWeightSource && (
+                                      <div className="text-xs text-muted-foreground">{groupWeightSource}</div>
+                                    )}
+                                  </div>
+                                ) : '-'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {groupEndWeight !== null ? `${formatNumber(groupEndWeight, 1)} kg` : '-'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {groupWeightGain !== null && groupWeightGain > 0 ? (
+                                  <Badge variant="secondary">
+                                    +{formatNumber(groupWeightGain, 1)} kg
+                                  </Badge>
+                                ) : '-'}
                               </TableCell>
                               <TableCell className="text-right">{formatNumber(totalFeedQuantity, 0)}</TableCell>
                               <TableCell className="text-right">
@@ -1902,6 +2022,25 @@ function EvaluationContent() {
                           const totalFeedCost = ungroupedAreas.reduce((sum, area) => sum + area.totalFeedCost, 0)
                           const costPerAnimalDay = totalAnimalDays > 0 ? totalFeedCost / totalAnimalDays : 0
 
+                          // Calculate weighted average weights for ungrouped areas
+                          const areasWithWeights = ungroupedAreas.filter(a => a.startWeight !== null && a.endWeight !== null)
+                          let ungroupedStartWeight: number | null = null
+                          let ungroupedEndWeight: number | null = null
+                          let ungroupedWeightGain: number | null = null
+
+                          if (areasWithWeights.length > 0) {
+                            const totalAnimalsInAreas = areasWithWeights.reduce((sum, a) => sum + a.animalCount, 0)
+                            if (totalAnimalsInAreas > 0) {
+                              ungroupedStartWeight = areasWithWeights.reduce((sum, a) =>
+                                sum + (a.startWeight! * a.animalCount), 0
+                              ) / totalAnimalsInAreas
+                              ungroupedEndWeight = areasWithWeights.reduce((sum, a) =>
+                                sum + (a.endWeight! * a.animalCount), 0
+                              ) / totalAnimalsInAreas
+                              ungroupedWeightGain = ungroupedEndWeight - ungroupedStartWeight
+                            }
+                          }
+
                           const totalFeedCostAll = areaMetrics.reduce((sum, a) => sum + a.totalFeedCost, 0)
                           const percentageOfTotal = totalFeedCostAll > 0 ? (totalFeedCost / totalFeedCostAll) * 100 : 0
 
@@ -1939,6 +2078,19 @@ function EvaluationContent() {
                                   <div className="text-xs text-muted-foreground">{ungroupedAreas.length} Bereiche</div>
                                 </div>
                               </TableCell>
+                              <TableCell className="text-right">
+                                {ungroupedStartWeight !== null ? `${formatNumber(ungroupedStartWeight, 1)} kg` : '-'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {ungroupedEndWeight !== null ? `${formatNumber(ungroupedEndWeight, 1)} kg` : '-'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                {ungroupedWeightGain !== null && ungroupedWeightGain > 0 ? (
+                                  <Badge variant="secondary">
+                                    +{formatNumber(ungroupedWeightGain, 1)} kg
+                                  </Badge>
+                                ) : '-'}
+                              </TableCell>
                               <TableCell className="text-right">{formatNumber(totalFeedQuantity, 0)}</TableCell>
                               <TableCell className="text-right">
                                 {totalAnimalDays > 0 ? formatNumber(totalFeedQuantity / totalAnimalDays, 2) : '0'}
@@ -1972,6 +2124,43 @@ function EvaluationContent() {
                                 return sum + (detail.count * days)
                               }, 0)
                               return formatNumber(totalAnimalDays, 0)
+                            })()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {(() => {
+                              const areasWithWeights = areaMetrics.filter(a => a.startWeight !== null)
+                              if (areasWithWeights.length === 0) return '-'
+                              const totalAnimals = areasWithWeights.reduce((sum, a) => sum + a.animalCount, 0)
+                              const avgStartWeight = areasWithWeights.reduce((sum, a) =>
+                                sum + (a.startWeight! * a.animalCount), 0
+                              ) / totalAnimals
+                              return `${formatNumber(avgStartWeight, 1)} kg`
+                            })()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {(() => {
+                              const areasWithWeights = areaMetrics.filter(a => a.endWeight !== null)
+                              if (areasWithWeights.length === 0) return '-'
+                              const totalAnimals = areasWithWeights.reduce((sum, a) => sum + a.animalCount, 0)
+                              const avgEndWeight = areasWithWeights.reduce((sum, a) =>
+                                sum + (a.endWeight! * a.animalCount), 0
+                              ) / totalAnimals
+                              return `${formatNumber(avgEndWeight, 1)} kg`
+                            })()}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {(() => {
+                              const areasWithWeights = areaMetrics.filter(a => a.weightGain !== null && a.weightGain > 0)
+                              if (areasWithWeights.length === 0) return '-'
+                              const totalAnimals = areasWithWeights.reduce((sum, a) => sum + a.animalCount, 0)
+                              const avgWeightGain = areasWithWeights.reduce((sum, a) =>
+                                sum + (a.weightGain! * a.animalCount), 0
+                              ) / totalAnimals
+                              return (
+                                <Badge variant="secondary">
+                                  +{formatNumber(avgWeightGain, 1)} kg
+                                </Badge>
+                              )
                             })()}
                           </TableCell>
                           <TableCell className="text-right">{formatNumber(areaMetrics.reduce((sum, a) => sum + a.totalFeedQuantity, 0), 0)}</TableCell>

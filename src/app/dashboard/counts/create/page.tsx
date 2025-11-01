@@ -9,7 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { ArrowLeft, Save } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
+import { ArrowLeft, Save, Info } from 'lucide-react'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { Textarea } from '@/components/ui/textarea'
@@ -46,6 +47,13 @@ export default function CreateCyclePage() {
     animalType: string
     startDate: string
     endDate: string
+    expectedWeight?: string
+    actualWeight?: string
+    buyPrice?: string
+    sellPrice?: string
+    isStartGroup?: boolean
+    isEndGroup?: boolean
+    startWeightSourceId?: string
   }>>({})
 
   // Financial state
@@ -56,6 +64,9 @@ export default function CreateCyclePage() {
   const [mortalityRate, setMortalityRate] = useState('')
   const [totalLifetimeDays, setTotalLifetimeDays] = useState('')
   const [slaughterWeightKg, setSlaughterWeightKg] = useState('')
+
+  // Filter state
+  const [showOnlyActive, setShowOnlyActive] = useState(true)
 
   // Load areas, groups, and suppliers
   useEffect(() => {
@@ -73,9 +84,9 @@ export default function CreateCyclePage() {
         setAreas(areasData)
         // Initialize counts for areas if in area mode
         if (countingMode === 'area') {
-          const initialCounts: Record<string, { count: number; animalType: string; startDate: string; endDate: string }> = {}
+          const initialCounts: Record<string, { count: number; animalType: string; startDate: string; endDate: string; expectedWeight?: string; actualWeight?: string; buyPrice?: string; sellPrice?: string; isStartGroup?: boolean; isEndGroup?: boolean; startWeightSourceId?: string }> = {}
           areasData.forEach(area => {
-            initialCounts[area.id] = { count: 0, animalType: '', startDate: '', endDate: '' }
+            initialCounts[area.id] = { count: 0, animalType: '', startDate: '', endDate: '', expectedWeight: '', actualWeight: '', buyPrice: '', sellPrice: '', isStartGroup: false, isEndGroup: false, startWeightSourceId: '' }
           })
           setAnimalCounts(initialCounts)
         }
@@ -92,9 +103,9 @@ export default function CreateCyclePage() {
         setAreaGroups(groupsData)
         // Initialize counts for groups if in group mode
         if (countingMode === 'group') {
-          const initialCounts: Record<string, { count: number; animalType: string; startDate: string; endDate: string }> = {}
+          const initialCounts: Record<string, { count: number; animalType: string; startDate: string; endDate: string; expectedWeight?: string; actualWeight?: string; buyPrice?: string; sellPrice?: string; isStartGroup?: boolean; isEndGroup?: boolean; startWeightSourceId?: string }> = {}
           groupsData.forEach(group => {
-            initialCounts[group.id] = { count: 0, animalType: '', startDate: '', endDate: '' }
+            initialCounts[group.id] = { count: 0, animalType: '', startDate: '', endDate: '', expectedWeight: '', actualWeight: '', buyPrice: '', sellPrice: '', isStartGroup: false, isEndGroup: false, startWeightSourceId: '' }
           })
           setAnimalCounts(initialCounts)
         }
@@ -114,6 +125,23 @@ export default function CreateCyclePage() {
   }, [currentFarmId, supabase, countingMode])
 
   const availableOptions = countingMode === 'area' ? areas : areaGroups
+
+  // Filter and sort options
+  const filteredAndSortedOptions = useMemo(() => {
+    let options = availableOptions
+
+    // Filter: only show areas/groups with animals
+    if (showOnlyActive) {
+      options = options.filter(option => (animalCounts[option.id]?.count || 0) > 0)
+    }
+
+    // Sort chronologically by start date
+    return [...options].sort((a, b) => {
+      const aDate = animalCounts[a.id]?.startDate || startDate || '9999-12-31'
+      const bDate = animalCounts[b.id]?.startDate || startDate || '9999-12-31'
+      return aDate.localeCompare(bDate)
+    })
+  }, [availableOptions, showOnlyActive, animalCounts, startDate])
 
   // Calculate total animals by finding max animals at any point in time
   const totalAnimalsCount = useMemo(() => {
@@ -171,7 +199,7 @@ export default function CreateCyclePage() {
       // Create count details
       const details = Object.entries(animalCounts)
         .filter(([, { count }]) => count > 0)
-        .map(([id, { count, animalType, startDate: itemStartDate, endDate: itemEndDate }]) => ({
+        .map(([id, { count, animalType, startDate: itemStartDate, endDate: itemEndDate, expectedWeight, actualWeight, buyPrice, sellPrice, isStartGroup, isEndGroup, startWeightSourceId }]) => ({
           livestock_count_id: livestockCount.id,
           area_id: countingMode === 'area' ? id : null,
           area_group_id: countingMode === 'group' ? id : null,
@@ -179,6 +207,13 @@ export default function CreateCyclePage() {
           animal_type: animalType || null,
           start_date: itemStartDate || startDate,
           end_date: itemEndDate || endDate || null,
+          expected_weight_per_animal: expectedWeight ? parseFloat(expectedWeight) : null,
+          actual_weight_per_animal: actualWeight ? parseFloat(actualWeight) : null,
+          buy_price_per_animal: buyPrice ? parseFloat(buyPrice) : null,
+          sell_price_per_animal: sellPrice ? parseFloat(sellPrice) : null,
+          is_start_group: !!(expectedWeight && !startWeightSourceId),  // Auto: has start weight and not inherited
+          is_end_group: !!actualWeight,  // Auto: has end weight
+          start_weight_source_detail_id: startWeightSourceId || null,
         }))
 
       if (details.length > 0) {
@@ -202,8 +237,8 @@ export default function CreateCyclePage() {
 
   const handleAnimalCountChange = (
     id: string,
-    field: 'count' | 'animalType' | 'startDate' | 'endDate',
-    value: string | number
+    field: 'count' | 'animalType' | 'startDate' | 'endDate' | 'expectedWeight' | 'actualWeight' | 'buyPrice' | 'sellPrice' | 'isStartGroup' | 'isEndGroup' | 'startWeightSourceId',
+    value: string | number | boolean
   ) => {
     setAnimalCounts(prev => ({
       ...prev,
@@ -289,9 +324,9 @@ export default function CreateCyclePage() {
                   onClick={() => {
                     setCountingMode('group')
                     // Reinitialize counts for groups
-                    const initialCounts: Record<string, { count: number; animalType: string; startDate: string; endDate: string }> = {}
+                    const initialCounts: Record<string, { count: number; animalType: string; startDate: string; endDate: string; expectedWeight?: string; actualWeight?: string; buyPrice?: string; sellPrice?: string; isStartGroup?: boolean; isEndGroup?: boolean; startWeightSourceId?: string }> = {}
                     areaGroups.forEach(group => {
-                      initialCounts[group.id] = { count: 0, animalType: '', startDate: '', endDate: '' }
+                      initialCounts[group.id] = { count: 0, animalType: '', startDate: '', endDate: '', expectedWeight: '', actualWeight: '', buyPrice: '', sellPrice: '', isStartGroup: false, isEndGroup: false, startWeightSourceId: '' }
                     })
                     setAnimalCounts(initialCounts)
                   }}
@@ -304,9 +339,9 @@ export default function CreateCyclePage() {
                   onClick={() => {
                     setCountingMode('area')
                     // Reinitialize counts for areas
-                    const initialCounts: Record<string, { count: number; animalType: string; startDate: string; endDate: string }> = {}
+                    const initialCounts: Record<string, { count: number; animalType: string; startDate: string; endDate: string; expectedWeight?: string; actualWeight?: string; buyPrice?: string; sellPrice?: string; isStartGroup?: boolean; isEndGroup?: boolean; startWeightSourceId?: string }> = {}
                     areas.forEach(area => {
-                      initialCounts[area.id] = { count: 0, animalType: '', startDate: '', endDate: '' }
+                      initialCounts[area.id] = { count: 0, animalType: '', startDate: '', endDate: '', expectedWeight: '', actualWeight: '', buyPrice: '', sellPrice: '', isStartGroup: false, isEndGroup: false, startWeightSourceId: '' }
                     })
                     setAnimalCounts(initialCounts)
                   }}
@@ -322,7 +357,9 @@ export default function CreateCyclePage() {
         <Card>
           <CardHeader>
             <CardTitle>Finanz- und Lieferanteninformationen</CardTitle>
-            <CardDescription>Optionale Angaben zu Preisen, Gewichten und Lieferanten</CardDescription>
+            <CardDescription>
+              Optionale Angaben zu Preisen, Gewichten und Lieferanten. Diese Werte gelten als Standard für alle Bereiche/Gruppen und können bei Bedarf pro Bereich/Gruppe überschrieben werden.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
@@ -476,6 +513,23 @@ export default function CreateCyclePage() {
             </div>
           </CardHeader>
           <CardContent>
+            {/* Filter Toggle */}
+            {availableOptions.length > 0 && (
+              <div className="flex items-center gap-2 mb-4 p-3 bg-muted/50 rounded-lg">
+                <Checkbox
+                  id="show-only-active"
+                  checked={showOnlyActive}
+                  onCheckedChange={(checked) => setShowOnlyActive(checked as boolean)}
+                />
+                <Label htmlFor="show-only-active" className="text-sm cursor-pointer">
+                  Nur Bereiche mit Tieren anzeigen
+                </Label>
+                <Badge variant="outline" className="ml-auto">
+                  {filteredAndSortedOptions.length} von {availableOptions.length}
+                </Badge>
+              </div>
+            )}
+
             <div className="space-y-3">
               {availableOptions.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
@@ -483,10 +537,14 @@ export default function CreateCyclePage() {
                   Bitte erstellen Sie zuerst {countingMode === 'area' ? 'Bereiche' : 'Gruppen'} in den Einstellungen.
                 </p>
               ) : (
-                availableOptions.map((option) => (
+                <>
+                {filteredAndSortedOptions.map((option) => (
                   <Card key={option.id} className="p-4">
                     <div className="space-y-3">
-                      <Label className="text-base font-medium">{option.name}</Label>
+                      <div className="flex items-center justify-between">
+                        <Label className="text-base font-medium">{option.name}</Label>
+                        <Badge variant="outline">{animalCounts[option.id]?.count || 0} Tiere</Badge>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                         <div className="space-y-1">
                           <Label className="text-xs text-muted-foreground">Anzahl Tiere</Label>
@@ -527,10 +585,193 @@ export default function CreateCyclePage() {
                             max={endDate || undefined}
                           />
                         </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Startgewicht (kg)</Label>
+                          <Select
+                            value={animalCounts[option.id]?.startWeightSourceId || (animalCounts[option.id]?.expectedWeight ? 'manual' : expectedWeightPerAnimal ? 'default' : 'none')}
+                            onValueChange={(value) => {
+                              if (value === 'manual' || value === 'none' || value === 'default') {
+                                handleAnimalCountChange(option.id, 'startWeightSourceId', '')
+                                if (value === 'manual') {
+                                  // Keep current manual value
+                                } else if (value === 'none') {
+                                  handleAnimalCountChange(option.id, 'expectedWeight', '')
+                                }
+                              } else {
+                                handleAnimalCountChange(option.id, 'startWeightSourceId', value)
+                                handleAnimalCountChange(option.id, 'expectedWeight', '')
+                              }
+                            }}
+                          >
+                            <SelectTrigger className="h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="manual">✏️ Direkt eingeben</SelectItem>
+                              {expectedWeightPerAnimal && (
+                                <SelectItem value="default">⚙️ Standard ({expectedWeightPerAnimal} kg)</SelectItem>
+                              )}
+                              {availableOptions
+                                .filter(o => o.id !== option.id && (animalCounts[o.id]?.actualWeight || animalCounts[o.id]?.expectedWeight))
+                                .map(o => (
+                                  <SelectItem key={o.id} value={o.id}>
+                                    🔗 Von {o.name}
+                                    {animalCounts[o.id]?.actualWeight
+                                      ? ` (${animalCounts[o.id]?.actualWeight} kg)`
+                                      : ` (${animalCounts[o.id]?.expectedWeight} kg)`}
+                                  </SelectItem>
+                                ))}
+                              {!expectedWeightPerAnimal && availableOptions.filter(o => o.id !== option.id).length === 0 && (
+                                <SelectItem value="none">- Kein Gewicht -</SelectItem>
+                              )}
+                            </SelectContent>
+                          </Select>
+                          {(!animalCounts[option.id]?.startWeightSourceId || animalCounts[option.id]?.startWeightSourceId === '') && (
+                            <Input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              placeholder="z.B. 8.0"
+                              value={animalCounts[option.id]?.expectedWeight || ''}
+                              onChange={(e) => handleAnimalCountChange(option.id, 'expectedWeight', e.target.value)}
+                              className="mt-2"
+                            />
+                          )}
+                          {animalCounts[option.id]?.startWeightSourceId && animalCounts[option.id]?.startWeightSourceId !== '' && (() => {
+                            const sourceId = animalCounts[option.id]?.startWeightSourceId
+                            const source = availableOptions.find(o => o.id === sourceId)
+                            const sourceWeight = animalCounts[sourceId!]?.actualWeight || animalCounts[sourceId!]?.expectedWeight
+                            return (
+                              <div className="text-xs text-muted-foreground mt-1">
+                                Verwendet: {sourceWeight || '-'} kg (von {source?.name})
+                              </div>
+                            )
+                          })()}
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">
+                            Endgewicht (kg)
+                            {actualWeightPerAnimal && <span className="text-xs ml-1">(Standard: {actualWeightPerAnimal} kg)</span>}
+                          </Label>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            placeholder={actualWeightPerAnimal || "optional"}
+                            value={animalCounts[option.id]?.actualWeight || ''}
+                            onChange={(e) => handleAnimalCountChange(option.id, 'actualWeight', e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">
+                            Einkaufspreis (€)
+                            {buyPricePerAnimal && <span className="text-xs ml-1">(Standard: {buyPricePerAnimal} €)</span>}
+                          </Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder={buyPricePerAnimal || "optional"}
+                            value={animalCounts[option.id]?.buyPrice || ''}
+                            onChange={(e) => handleAnimalCountChange(option.id, 'buyPrice', e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">
+                            Verkaufspreis (€)
+                            {sellPricePerAnimal && <span className="text-xs ml-1">(Standard: {sellPricePerAnimal} €)</span>}
+                          </Label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder={sellPricePerAnimal || "optional"}
+                            value={animalCounts[option.id]?.sellPrice || ''}
+                            onChange={(e) => handleAnimalCountChange(option.id, 'sellPrice', e.target.value)}
+                          />
+                        </div>
                       </div>
+
+                      {/* Live Weight Gain Calculation */}
+                      {(() => {
+                        const sourceId = animalCounts[option.id]?.startWeightSourceId
+                        const manualStart = animalCounts[option.id]?.expectedWeight
+                        const endWeight = animalCounts[option.id]?.actualWeight
+
+                        let startWeight: number | null = null
+                        let source = ''
+
+                        if (manualStart) {
+                          startWeight = parseFloat(manualStart)
+                          source = 'direkt eingegeben'
+                        } else if (sourceId && sourceId !== '') {
+                          const sourceArea = availableOptions.find(o => o.id === sourceId)
+                          const sourceWeight = animalCounts[sourceId]?.actualWeight || animalCounts[sourceId]?.expectedWeight
+                          if (sourceWeight) {
+                            startWeight = parseFloat(sourceWeight)
+                            source = `von ${sourceArea?.name}`
+                          }
+                        } else if (expectedWeightPerAnimal) {
+                          startWeight = parseFloat(expectedWeightPerAnimal)
+                          source = 'Standard'
+                        }
+
+                        const end = endWeight ? parseFloat(endWeight) : null
+                        const gain = (startWeight !== null && end !== null) ? end - startWeight : null
+
+                        if (gain !== null || startWeight !== null || end !== null) {
+                          return (
+                            <div className={`p-2 rounded-md text-xs ${gain && gain > 0 ? 'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300' : 'bg-muted'}`}>
+                              <div className="font-medium mb-1">📊 Berechnung:</div>
+                              <div className="space-y-0.5 text-xs">
+                                {startWeight !== null && (
+                                  <div>Start: {startWeight} kg {source && `(${source})`}</div>
+                                )}
+                                {end !== null && (
+                                  <div>Ende: {end} kg</div>
+                                )}
+                                {gain !== null && (
+                                  <div className="font-semibold mt-1">
+                                    → Gewichtszunahme: {gain.toFixed(1)} kg pro Tier
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
                     </div>
                   </Card>
-                ))
+                ))}
+
+                {/* Quick Add - only show when filtered */}
+                {showOnlyActive && filteredAndSortedOptions.length < availableOptions.length && (
+                  <Card className="p-4 border-dashed">
+                    <Select
+                      value=""
+                      onValueChange={(id) => {
+                        if (id) {
+                          handleAnimalCountChange(id, 'count', 1)
+                        }
+                      }}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="+ Weiteren Bereich hinzufügen..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableOptions
+                          .filter(o => !filteredAndSortedOptions.find(f => f.id === o.id))
+                          .map(o => (
+                            <SelectItem key={o.id} value={o.id}>
+                              {o.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </Card>
+                )}
+                </>
               )}
             </div>
           </CardContent>
