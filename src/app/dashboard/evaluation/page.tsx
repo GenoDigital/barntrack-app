@@ -110,6 +110,14 @@ interface EvaluationMetrics {
   cycleDuration: number
   dailyFeedCost: number
   feedEfficiency: number
+  // Revenue breakdown
+  animalSalesRevenue: number
+  additionalIncome: number
+  // Cost breakdown
+  animalPurchaseCost: number
+  additionalCosts: number
+  consumptionFeedCost: number
+  feedCategoryTransactionCosts: number
 }
 
 interface AreaMetrics {
@@ -150,11 +158,19 @@ interface CostTransaction {
   }
 }
 
+interface IncomeTransaction {
+  id: string
+  amount: number
+  transaction_date: string
+  income_type: string
+}
+
 function EvaluationContent() {
   const [durchgaenge, setDurchgaenge] = useState<LivestockCountWithDetails[]>([])
   const [selectedDurchgang, setSelectedDurchgang] = useState<string>('')
   const [consumptionData, setConsumptionData] = useState<ConsumptionData[]>([])
   const [costTransactions, setCostTransactions] = useState<CostTransaction[]>([])
+  const [incomeTransactions, setIncomeTransactions] = useState<IncomeTransaction[]>([])
   const [metrics, setMetrics] = useState<EvaluationMetrics | null>(null)
   const [areaMetrics, setAreaMetrics] = useState<AreaMetrics[]>([])
   const [feedComponentSummary, setFeedComponentSummary] = useState<FeedComponentSummary[]>([])
@@ -171,6 +187,8 @@ function EvaluationContent() {
 
   // Weitere Kosten expansion state
   const [showWeitereKosten, setShowWeitereKosten] = useState(false)
+  const [showWeitereEinnahmen, setShowWeitereEinnahmen] = useState(false)
+  const [showFutterDetails, setShowFutterDetails] = useState(false)
 
   // Data quality warnings
   const [dataQualityIssues, setDataQualityIssues] = useState<{
@@ -333,8 +351,23 @@ function EvaluationContent() {
       console.log('Loaded cost transactions:', costData?.length || 0)
       setCostTransactions(costData || [])
 
+      // Load income transactions for this durchgang
+      const { data: incomeData } = await supabase
+        .from('income_transactions')
+        .select(`
+          id,
+          amount,
+          transaction_date,
+          income_type
+        `)
+        .eq('livestock_count_id', selectedDurchgang)
+        .order('transaction_date')
+
+      console.log('Loaded income transactions:', incomeData?.length || 0)
+      setIncomeTransactions(incomeData || [])
+
       setConsumptionData(filteredConsumption)
-      calculateMetrics(durchgang, filteredConsumption, costData || [])
+      calculateMetrics(durchgang, filteredConsumption, costData || [], incomeData || [])
       calculateAreaMetrics(durchgang, filteredConsumption, costData || [])
       calculateFeedComponentSummary(durchgang, filteredConsumption)
 
@@ -364,9 +397,9 @@ function EvaluationContent() {
     return filteredAreaIds.length === 0 || filteredAreaIds.includes(areaId)
   }
 
-  const calculateMetrics = (durchgang: LivestockCountWithDetails, consumption: ConsumptionData[], costTransactions: CostTransaction[] = []) => {
+  const calculateMetrics = (durchgang: LivestockCountWithDetails, consumption: ConsumptionData[], costTransactions: CostTransaction[] = [], incomeTransactions: IncomeTransaction[] = []) => {
     // Use centralized KPI calculation function
-    const metrics = calculateCycleMetrics(durchgang as any, consumption as any, costTransactions)
+    const metrics = calculateCycleMetrics(durchgang as any, consumption as any, costTransactions, incomeTransactions)
     setMetrics(metrics)
   }
 
@@ -1149,12 +1182,36 @@ function EvaluationContent() {
                       <span className="font-medium">Einnahmen</span>
                       <span className="font-bold text-green-600">{formatCurrency(metrics.totalRevenue)}</span>
                     </div>
-                    
+
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <span className="text-sm">Verkaufserlös</span>
-                        <span>{formatCurrency(metrics.totalRevenue)}</span>
+                        <span className="text-sm">Tierverkauf</span>
+                        <span>{formatCurrency(metrics.animalSalesRevenue)}</span>
                       </div>
+                      {incomeTransactions.length > 0 && (
+                        <>
+                          <div
+                            className="flex justify-between items-center cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
+                            onClick={() => setShowWeitereEinnahmen(!showWeitereEinnahmen)}
+                          >
+                            <div className="flex items-center gap-2">
+                              {showWeitereEinnahmen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              <span className="text-sm">Sonstige Einnahmen</span>
+                            </div>
+                            <span>{formatCurrency(metrics.additionalIncome)}</span>
+                          </div>
+                          {showWeitereEinnahmen && (
+                            <div className="ml-6 space-y-1 text-sm text-muted-foreground">
+                              {incomeTransactions.map((income) => (
+                                <div key={income.id} className="flex justify-between">
+                                  <span>{income.income_type}</span>
+                                  <span>{formatCurrency(income.amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
 
                     <div className="flex justify-between items-center border-b pb-2">
@@ -1163,52 +1220,88 @@ function EvaluationContent() {
                     </div>
                     
                     <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Futterkosten</span>
-                        <span>{formatCurrency(metrics.totalFeedCost)}</span>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm">Tierkauf</span>
-                        <span>{formatCurrency(metrics.totalAnimals * (selectedDurchgangData.buy_price_per_animal || 0))}</span>
-                      </div>
-                      {costTransactions.length > 0 && (
+                      {metrics.feedCategoryTransactionCosts > 0 ? (
                         <>
+                          {/* Show expandable feed costs when there are feed-category transactions */}
                           <div
                             className="flex justify-between items-center cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
-                            onClick={() => setShowWeitereKosten(!showWeitereKosten)}
+                            onClick={() => setShowFutterDetails(!showFutterDetails)}
                           >
                             <div className="flex items-center gap-2">
-                              {showWeitereKosten ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                              <span className="text-sm">Weitere Kosten</span>
+                              {showFutterDetails ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                              <span className="text-sm">Futterkosten</span>
                             </div>
-                            <span>{formatCurrency(costTransactions.reduce((sum, t) => sum + t.amount, 0))}</span>
+                            <span>{formatCurrency(metrics.totalFeedCost)}</span>
                           </div>
-                          {showWeitereKosten && (
+                          {showFutterDetails && (
                             <div className="ml-6 space-y-1 border-l-2 border-muted pl-3">
-                              {(() => {
-                                // Group costs by category
-                                const costsByCategory = costTransactions.reduce((acc, transaction) => {
-                                  const category = transaction.cost_types?.category || 'Sonstige'
-                                  if (!acc[category]) {
-                                    acc[category] = 0
-                                  }
-                                  acc[category] += transaction.amount
-                                  return acc
-                                }, {} as Record<string, number>)
-
-                                return Object.entries(costsByCategory)
-                                  .sort(([, a], [, b]) => b - a)
-                                  .map(([category, amount]) => (
-                                    <div key={category} className="flex justify-between items-center text-xs">
-                                      <span className="text-muted-foreground">{category}</span>
-                                      <span>{formatCurrency(amount)}</span>
-                                    </div>
-                                  ))
-                              })()}
+                              <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">Futterverbrauch</span>
+                                <span>{formatCurrency(metrics.consumptionFeedCost)}</span>
+                              </div>
+                              <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">Futterzukäufe (z.B. MAT)</span>
+                                <span>{formatCurrency(metrics.feedCategoryTransactionCosts)}</span>
+                              </div>
                             </div>
                           )}
                         </>
+                      ) : (
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm">Futterkosten</span>
+                          <span>{formatCurrency(metrics.totalFeedCost)}</span>
+                        </div>
                       )}
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm">Tierkauf</span>
+                        <span>{formatCurrency(metrics.animalPurchaseCost)}</span>
+                      </div>
+                      {/* Only show non-feed cost transactions to avoid double-counting */}
+                      {(() => {
+                        const nonFeedCostTransactions = costTransactions.filter(
+                          t => t.cost_types?.category?.toLowerCase() !== 'futterkosten'
+                        )
+                        if (nonFeedCostTransactions.length === 0) return null
+
+                        return (
+                          <>
+                            <div
+                              className="flex justify-between items-center cursor-pointer hover:bg-muted/50 -mx-2 px-2 py-1 rounded"
+                              onClick={() => setShowWeitereKosten(!showWeitereKosten)}
+                            >
+                              <div className="flex items-center gap-2">
+                                {showWeitereKosten ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                <span className="text-sm">Weitere Kosten</span>
+                              </div>
+                              <span>{formatCurrency(metrics.additionalCosts)}</span>
+                            </div>
+                            {showWeitereKosten && (
+                              <div className="ml-6 space-y-1 border-l-2 border-muted pl-3">
+                                {(() => {
+                                  // Group non-feed costs by category
+                                  const costsByCategory = nonFeedCostTransactions.reduce((acc, transaction) => {
+                                    const category = transaction.cost_types?.category || 'Sonstige'
+                                    if (!acc[category]) {
+                                      acc[category] = 0
+                                    }
+                                    acc[category] += transaction.amount
+                                    return acc
+                                  }, {} as Record<string, number>)
+
+                                  return Object.entries(costsByCategory)
+                                    .sort(([, a], [, b]) => b - a)
+                                    .map(([category, amount]) => (
+                                      <div key={category} className="flex justify-between items-center text-xs">
+                                        <span className="text-muted-foreground">{category}</span>
+                                        <span>{formatCurrency(amount)}</span>
+                                      </div>
+                                    ))
+                                })()}
+                              </div>
+                            )}
+                          </>
+                        )
+                      })()}
                     </div>
 
                     <div className="flex justify-between items-center border-t pt-2 font-bold text-lg">

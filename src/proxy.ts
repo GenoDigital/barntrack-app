@@ -14,7 +14,7 @@ import { NextResponse, type NextRequest } from 'next/server'
  * Performance: Simple indexed queries (~5ms), cached by Next.js per request
  * See: PRODUCTION_SETUP.md for details
  */
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({
     request: {
       headers: request.headers,

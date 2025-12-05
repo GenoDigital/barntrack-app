@@ -194,6 +194,101 @@ export type Database = {
           },
         ]
       }
+      cost_template_items: {
+        Row: {
+          allocation_type: string
+          amount: number
+          cost_type_id: string
+          created_at: string | null
+          description: string | null
+          id: string
+          quantity: number | null
+          template_id: string
+          unit: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          allocation_type?: string
+          amount: number
+          cost_type_id: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          quantity?: number | null
+          template_id: string
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          allocation_type?: string
+          amount?: number
+          cost_type_id?: string
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          quantity?: number | null
+          template_id?: string
+          unit?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_template_items_cost_type_id_fkey"
+            columns: ["cost_type_id"]
+            isOneToOne: false
+            referencedRelation: "cost_types"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cost_template_items_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "cost_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cost_templates: {
+        Row: {
+          created_at: string | null
+          created_by: string
+          description: string | null
+          farm_id: string
+          id: string
+          name: string
+          updated_at: string | null
+          year: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          farm_id: string
+          id?: string
+          name: string
+          updated_at?: string | null
+          year?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          farm_id?: string
+          id?: string
+          name?: string
+          updated_at?: string | null
+          year?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cost_templates_farm_id_fkey"
+            columns: ["farm_id"]
+            isOneToOne: false
+            referencedRelation: "farms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cost_transactions: {
         Row: {
           amount: number
@@ -602,6 +697,63 @@ export type Database = {
             columns: ["farm_id"]
             isOneToOne: false
             referencedRelation: "farms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      income_transactions: {
+        Row: {
+          amount: number
+          created_at: string | null
+          created_by: string
+          description: string | null
+          farm_id: string
+          id: string
+          income_type: string
+          livestock_count_id: string | null
+          notes: string | null
+          transaction_date: string
+          updated_at: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string | null
+          created_by: string
+          description?: string | null
+          farm_id: string
+          id?: string
+          income_type: string
+          livestock_count_id?: string | null
+          notes?: string | null
+          transaction_date: string
+          updated_at?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string | null
+          created_by?: string
+          description?: string | null
+          farm_id?: string
+          id?: string
+          income_type?: string
+          livestock_count_id?: string | null
+          notes?: string | null
+          transaction_date?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "income_transactions_farm_id_fkey"
+            columns: ["farm_id"]
+            isOneToOne: false
+            referencedRelation: "farms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "income_transactions_livestock_count_id_fkey"
+            columns: ["livestock_count_id"]
+            isOneToOne: false
+            referencedRelation: "livestock_counts"
             referencedColumns: ["id"]
           },
         ]

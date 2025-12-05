@@ -28,6 +28,8 @@ import {
   PawPrint,
   Receipt,
   Tag,
+  Wallet,
+  FolderOpen,
 } from 'lucide-react'
 
 interface NavItem {
@@ -61,6 +63,7 @@ const navigationGroups: NavGroup[] = [
       { name: 'Tierzahlen', href: '/dashboard/counts', icon: PawPrint },
       { name: 'Preise', href: '/dashboard/prices', icon: DollarSign },
       { name: 'Kostenbuchungen', href: '/dashboard/costs', icon: Receipt },
+      { name: 'Einnahmen', href: '/dashboard/income', icon: Wallet },
     ]
   },
   {
@@ -71,6 +74,7 @@ const navigationGroups: NavGroup[] = [
       { name: 'Lieferanten', href: '/dashboard/suppliers', icon: Building },
       { name: 'Bereiche', href: '/dashboard/areas', icon: MapPin },
       { name: 'Kostenarten', href: '/dashboard/cost-types', icon: Tag },
+      { name: 'Kostenvorlagen', href: '/dashboard/cost-templates', icon: FolderOpen },
     ]
   },
   {

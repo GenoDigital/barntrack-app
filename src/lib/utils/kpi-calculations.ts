@@ -87,6 +87,13 @@ export interface CostTransaction {
   }
 }
 
+export interface IncomeTransaction {
+  id: string
+  amount: number
+  transaction_date: string
+  income_type: string
+}
+
 export interface CycleMetrics {
   totalAnimals: number
   averageWeight: number
@@ -108,6 +115,14 @@ export interface CycleMetrics {
   additionalCosts: number
   dailyGainGrams: number | null
   netDailyGainGrams: number | null
+  /** Feed-related costs from cost_transactions (e.g., Milchaustauscher) */
+  feedCategoryTransactionCosts: number
+  /** Consumption-only feed costs (without cost_transactions) */
+  consumptionFeedCost: number
+  /** Additional income from income_transactions (Praemien, Boni, Zuschuesse) */
+  additionalIncome: number
+  /** Revenue from animal sales only (without additionalIncome) */
+  animalSalesRevenue: number
 }
 
 export interface AreaMetrics {
@@ -391,7 +406,8 @@ export function filterConsumptionByTimeframe(
 export function calculateCycleMetrics(
   cycle: LivestockCount,
   consumption: ConsumptionItem[],
-  costTransactions: CostTransaction[] = []
+  costTransactions: CostTransaction[] = [],
+  incomeTransactions: IncomeTransaction[] = []
 ): CycleMetrics {
   // Calculate total animals using centralized utility
   const totalAnimals = calculateTotalAnimalsFromDetails(
@@ -433,28 +449,79 @@ export function calculateCycleMetrics(
     cycle.end_date
   )
 
-  // Feed cost calculations
-  const totalFeedCost = filteredConsumption.reduce((sum, item) => sum + (item.total_cost || 0), 0)
+  // Feed cost calculations from consumption
+  const consumptionFeedCost = filteredConsumption.reduce((sum, item) => sum + (item.total_cost || 0), 0)
   const totalFeedQuantity = filteredConsumption.reduce((sum, item) => sum + item.quantity, 0)
 
-  // Additional cost calculations
-  const additionalCosts = costTransactions.reduce((sum, transaction) => sum + transaction.amount, 0)
+  // Separate cost transactions: feed-related (category = 'Futterkosten') vs other costs
+  // Feed-related transactions (e.g., Milchaustauscher) are added to feed costs
+  const feedCategoryTransactions = costTransactions.filter(
+    t => t.cost_types?.category?.toLowerCase() === 'futterkosten'
+  )
+  const otherCostTransactions = costTransactions.filter(
+    t => t.cost_types?.category?.toLowerCase() !== 'futterkosten'
+  )
+
+  const feedCategoryTransactionCosts = feedCategoryTransactions.reduce(
+    (sum, transaction) => sum + transaction.amount, 0
+  )
+
+  // Total feed cost = consumption costs + feed-category transaction costs (e.g., Milchaustauscher)
+  const totalFeedCost = consumptionFeedCost + feedCategoryTransactionCosts
+
+  // Additional costs = only non-feed cost transactions
+  const additionalCosts = otherCostTransactions.reduce((sum, transaction) => sum + transaction.amount, 0)
 
   // Calculate animal purchase cost and revenue using detail-level prices
+  // IMPORTANT: Only count buy_price for start groups (is_start_group = true)
+  // and sell_price for end groups (is_end_group = true) to avoid double-counting
+  // when animals move between areas (e.g., Kälberstall → Fresserstall)
+  //
+  // FALLBACK for legacy data: If no details have is_start_group/is_end_group set,
+  // use the old behavior (count all details with prices)
   let animalPurchaseCost = 0
-  let totalRevenue = 0
+  let animalSalesRevenue = 0
+
+  // Check if any details have start/end group flags set
+  const hasStartGroupFlags = cycle.livestock_count_details.some(d => d.is_start_group === true)
+  const hasEndGroupFlags = cycle.livestock_count_details.some(d => d.is_end_group === true)
 
   cycle.livestock_count_details.forEach(detail => {
     const buyPrice = getDetailBuyPrice(detail, cycle)
     const sellPrice = getDetailSellPrice(detail, cycle)
 
+    // Purchase cost: only count for start groups, or all if no flags set (legacy)
     if (buyPrice !== null) {
-      animalPurchaseCost += detail.count * buyPrice
+      if (hasStartGroupFlags) {
+        // New behavior: only count start groups
+        if (detail.is_start_group === true) {
+          animalPurchaseCost += detail.count * buyPrice
+        }
+      } else {
+        // Legacy fallback: count all details with buy price
+        animalPurchaseCost += detail.count * buyPrice
+      }
     }
+
+    // Sales revenue: only count for end groups, or all if no flags set (legacy)
     if (sellPrice !== null) {
-      totalRevenue += detail.count * sellPrice
+      if (hasEndGroupFlags) {
+        // New behavior: only count end groups
+        if (detail.is_end_group === true) {
+          animalSalesRevenue += detail.count * sellPrice
+        }
+      } else {
+        // Legacy fallback: count all details with sell price
+        animalSalesRevenue += detail.count * sellPrice
+      }
     }
   })
+
+  // Calculate additional income from income transactions (Praemien, Boni, Zuschuesse)
+  const additionalIncome = incomeTransactions.reduce((sum, t) => sum + t.amount, 0)
+
+  // Total revenue = animal sales + additional income (Praemien, etc.)
+  const totalRevenue = animalSalesRevenue + additionalIncome
 
   // Cycle duration
   const cycleDuration = calculateCycleDuration(cycle.start_date, cycle.end_date)
@@ -513,7 +580,11 @@ export function calculateCycleMetrics(
     animalPurchaseCost,
     additionalCosts,
     dailyGainGrams,
-    netDailyGainGrams
+    netDailyGainGrams,
+    feedCategoryTransactionCosts,
+    consumptionFeedCost,
+    additionalIncome,
+    animalSalesRevenue
   }
 }
 

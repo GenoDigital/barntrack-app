@@ -11,7 +11,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useFarmStore } from '@/lib/stores/farm-store'
-import { Plus, Edit, Trash2, DollarSign, Calendar, FileText, Copy } from 'lucide-react'
+import { Plus, Edit, Trash2, DollarSign, Calendar, FileText, Copy, ArrowUpDown, ArrowUp, ArrowDown, FolderOpen, Import } from 'lucide-react'
+import { useAuth } from '@/lib/hooks/use-auth'
+import { calculateCycleDuration, calculateTotalAnimalsFromDetails } from '@/lib/utils/livestock-calculations'
 import { toast } from 'sonner'
 
 type CostType = {
@@ -30,6 +32,34 @@ type LivestockCount = {
 type Supplier = {
   id: string
   name: string
+}
+
+type CostTemplateItem = {
+  id: string
+  template_id: string
+  cost_type_id: string
+  amount: number
+  quantity: number | null
+  unit: string | null
+  description: string | null
+  allocation_type: 'fixed' | 'per_animal' | 'per_day'
+  cost_types?: CostType
+}
+
+type CostTemplate = {
+  id: string
+  name: string
+  year: number | null
+  description: string | null
+  items?: CostTemplateItem[]
+}
+
+type LivestockCountWithDetails = LivestockCount & {
+  livestock_count_details?: Array<{
+    count: number
+    start_date: string
+    end_date: string | null
+  }>
 }
 
 type CostTransaction = {
@@ -80,6 +110,21 @@ export default function CostsPage() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Sorting state
+  type SortColumn = 'transaction_date' | 'cost_type' | 'supplier' | 'durchgang' | 'amount' | 'quantity'
+  type SortDirection = 'asc' | 'desc'
+  const [sortColumn, setSortColumn] = useState<SortColumn>('transaction_date')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
+
+  // Template import state
+  const [showImportDialog, setShowImportDialog] = useState(false)
+  const [templates, setTemplates] = useState<CostTemplate[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [selectedImportCycleId, setSelectedImportCycleId] = useState('')
+  const [importPreview, setImportPreview] = useState<Array<{ item: CostTemplateItem; calculatedAmount: number }>>([])
+  const [importing, setImporting] = useState(false)
+  const { user } = useAuth()
 
   useEffect(() => {
     if (currentFarmId) {
@@ -150,6 +195,151 @@ export default function CostsPage() {
       setSuppliers(data)
     }
   }
+
+  const loadTemplates = async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase
+      .from('cost_templates')
+      .select(`
+        *,
+        items:cost_template_items(
+          *,
+          cost_types(id, name, category)
+        )
+      `)
+      .eq('farm_id', currentFarmId!)
+      .order('name') as any)
+
+    if (!error && data) {
+      setTemplates(data as CostTemplate[])
+    }
+  }
+
+  const loadLivestockCountWithDetails = async (cycleId: string): Promise<LivestockCountWithDetails | null> => {
+    const { data, error } = await supabase
+      .from('livestock_counts')
+      .select(`
+        id, durchgang_name, start_date, end_date,
+        livestock_count_details(count, start_date, end_date)
+      `)
+      .eq('id', cycleId)
+      .single()
+
+    if (error || !data) return null
+    return data as LivestockCountWithDetails
+  }
+
+  const calculateImportPreview = async () => {
+    if (!selectedTemplateId || !selectedImportCycleId) {
+      setImportPreview([])
+      return
+    }
+
+    const template = templates.find(t => t.id === selectedTemplateId)
+    if (!template?.items?.length) {
+      setImportPreview([])
+      return
+    }
+
+    const cycle = await loadLivestockCountWithDetails(selectedImportCycleId)
+    if (!cycle) {
+      setImportPreview([])
+      return
+    }
+
+    // Calculate cycle metrics
+    const duration = calculateCycleDuration(cycle.start_date, cycle.end_date)
+    const totalAnimals = cycle.livestock_count_details
+      ? calculateTotalAnimalsFromDetails(
+          cycle.livestock_count_details.map(d => ({
+            count: d.count,
+            start_date: d.start_date,
+            end_date: d.end_date || null,
+          })),
+          cycle.start_date,
+          cycle.end_date
+        )
+      : 0
+
+    // Calculate amounts for each item
+    const preview = template.items.map(item => {
+      let calculatedAmount = item.amount * (item.quantity || 1)
+
+      switch (item.allocation_type) {
+        case 'per_animal':
+          calculatedAmount = item.amount * totalAnimals
+          break
+        case 'per_day':
+          calculatedAmount = item.amount * duration
+          break
+        // 'fixed' uses the base amount
+      }
+
+      return { item, calculatedAmount }
+    })
+
+    setImportPreview(preview)
+  }
+
+  const handleOpenImportDialog = async () => {
+    await loadTemplates()
+    setSelectedTemplateId('')
+    setSelectedImportCycleId('')
+    setImportPreview([])
+    setShowImportDialog(true)
+  }
+
+  const handleImportFromTemplate = async () => {
+    if (!selectedTemplateId || !selectedImportCycleId || !user || !currentFarmId) {
+      toast.error('Bitte wählen Sie eine Vorlage und einen Durchgang aus')
+      return
+    }
+
+    if (importPreview.length === 0) {
+      toast.error('Keine Positionen zum Importieren')
+      return
+    }
+
+    setImporting(true)
+    try {
+      const cycle = livestockCounts.find(c => c.id === selectedImportCycleId)
+      const transactionDate = cycle?.start_date || new Date().toISOString().split('T')[0]
+
+      const transactions = importPreview.map(({ item, calculatedAmount }) => ({
+        farm_id: currentFarmId,
+        cost_type_id: item.cost_type_id,
+        livestock_count_id: selectedImportCycleId,
+        transaction_date: transactionDate,
+        amount: Math.round(calculatedAmount * 100) / 100, // Round to 2 decimal places
+        quantity: item.quantity || 1,
+        unit: item.unit || null,
+        description: item.description || `Aus Vorlage: ${templates.find(t => t.id === selectedTemplateId)?.name}`,
+        created_by: user.id,
+      }))
+
+      const { error } = await supabase
+        .from('cost_transactions')
+        .insert(transactions)
+
+      if (error) throw error
+
+      toast.success(`${transactions.length} Kostenbuchungen importiert`)
+      setShowImportDialog(false)
+      loadCostTransactions()
+    } catch (err) {
+      console.error('Error importing from template:', err)
+      toast.error('Fehler beim Importieren')
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  // Update preview when selections change
+  useEffect(() => {
+    if (showImportDialog) {
+      calculateImportPreview()
+    }
+  }, [selectedTemplateId, selectedImportCycleId, showImportDialog])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -315,22 +505,69 @@ export default function CostsPage() {
     return costTransactions.reduce((sum, t) => sum + t.amount, 0)
   }
 
-  const filteredTransactions = costTransactions.filter((transaction) => {
-    if (!searchQuery.trim()) return true
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortDirection('asc')
+    }
+  }
 
-    const query = searchQuery.toLowerCase()
-    return (
-      transaction.cost_types?.name.toLowerCase().includes(query) ||
-      transaction.cost_types?.category?.toLowerCase().includes(query) ||
-      transaction.suppliers?.name.toLowerCase().includes(query) ||
-      transaction.supplier_name?.toLowerCase().includes(query) ||
-      transaction.livestock_counts?.durchgang_name?.toLowerCase().includes(query) ||
-      transaction.description?.toLowerCase().includes(query) ||
-      transaction.invoice_number?.toLowerCase().includes(query) ||
-      transaction.amount.toString().includes(query) ||
-      formatDate(transaction.transaction_date).includes(query)
-    )
-  })
+  const getSortIcon = (column: SortColumn) => {
+    if (sortColumn !== column) {
+      return <ArrowUpDown className="h-4 w-4 ml-1 opacity-50" />
+    }
+    return sortDirection === 'asc'
+      ? <ArrowUp className="h-4 w-4 ml-1" />
+      : <ArrowDown className="h-4 w-4 ml-1" />
+  }
+
+  const filteredTransactions = costTransactions
+    .filter((transaction) => {
+      if (!searchQuery.trim()) return true
+
+      const query = searchQuery.toLowerCase()
+      return (
+        transaction.cost_types?.name.toLowerCase().includes(query) ||
+        transaction.cost_types?.category?.toLowerCase().includes(query) ||
+        transaction.suppliers?.name.toLowerCase().includes(query) ||
+        transaction.supplier_name?.toLowerCase().includes(query) ||
+        transaction.livestock_counts?.durchgang_name?.toLowerCase().includes(query) ||
+        transaction.description?.toLowerCase().includes(query) ||
+        transaction.invoice_number?.toLowerCase().includes(query) ||
+        transaction.amount.toString().includes(query) ||
+        formatDate(transaction.transaction_date).includes(query)
+      )
+    })
+    .sort((a, b) => {
+      let comparison = 0
+
+      switch (sortColumn) {
+        case 'transaction_date':
+          comparison = new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime()
+          break
+        case 'cost_type':
+          comparison = (a.cost_types?.name || '').localeCompare(b.cost_types?.name || '')
+          break
+        case 'supplier':
+          const supplierA = a.suppliers?.name || a.supplier_name || ''
+          const supplierB = b.suppliers?.name || b.supplier_name || ''
+          comparison = supplierA.localeCompare(supplierB)
+          break
+        case 'durchgang':
+          comparison = (a.livestock_counts?.durchgang_name || '').localeCompare(b.livestock_counts?.durchgang_name || '')
+          break
+        case 'amount':
+          comparison = a.amount - b.amount
+          break
+        case 'quantity':
+          comparison = (a.quantity || 0) - (b.quantity || 0)
+          break
+      }
+
+      return sortDirection === 'asc' ? comparison : -comparison
+    })
 
   return (
     <div className="space-y-6">
@@ -341,17 +578,27 @@ export default function CostsPage() {
             Verwalten Sie Ihre zusätzlichen Kosten und Ausgaben
           </p>
         </div>
-        <Button
-          onClick={() => {
-            resetForm()
-            setEditingTransaction(null)
-            setShowCreateDialog(true)
-          }}
-          className="flex items-center gap-2"
-        >
-          <Plus className="h-4 w-4" />
-          Neue Kostenbuchung
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={handleOpenImportDialog}
+            className="flex items-center gap-2"
+          >
+            <FolderOpen className="h-4 w-4" />
+            Aus Vorlage
+          </Button>
+          <Button
+            onClick={() => {
+              resetForm()
+              setEditingTransaction(null)
+              setShowCreateDialog(true)
+            }}
+            className="flex items-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Neue Kostenbuchung
+          </Button>
+        </div>
       </div>
 
       {/* Summary Card */}
@@ -399,12 +646,60 @@ export default function CostsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Datum</TableHead>
-                <TableHead>Kostenart</TableHead>
-                <TableHead>Lieferant</TableHead>
-                <TableHead>Durchgang</TableHead>
-                <TableHead>Betrag</TableHead>
-                <TableHead>Menge</TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('transaction_date')}
+                >
+                  <div className="flex items-center">
+                    Datum
+                    {getSortIcon('transaction_date')}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('cost_type')}
+                >
+                  <div className="flex items-center">
+                    Kostenart
+                    {getSortIcon('cost_type')}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('supplier')}
+                >
+                  <div className="flex items-center">
+                    Lieferant
+                    {getSortIcon('supplier')}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('durchgang')}
+                >
+                  <div className="flex items-center">
+                    Durchgang
+                    {getSortIcon('durchgang')}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('amount')}
+                >
+                  <div className="flex items-center">
+                    Betrag
+                    {getSortIcon('amount')}
+                  </div>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer hover:bg-muted/50 select-none"
+                  onClick={() => handleSort('quantity')}
+                >
+                  <div className="flex items-center">
+                    Menge
+                    {getSortIcon('quantity')}
+                  </div>
+                </TableHead>
                 <TableHead>Beschreibung</TableHead>
                 <TableHead>Aktionen</TableHead>
               </TableRow>
@@ -683,6 +978,144 @@ export default function CostsPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import from Template Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderOpen className="h-5 w-5" />
+              Aus Vorlage importieren
+            </DialogTitle>
+            <DialogDescription>
+              Wählen Sie eine Vorlage und einen Durchgang, um Kostenbuchungen zu erstellen.
+              Die Beträge werden je nach Verteilungsart automatisch berechnet.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Vorlage *</Label>
+                <Select
+                  value={selectedTemplateId}
+                  onValueChange={setSelectedTemplateId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Vorlage wählen..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.length === 0 ? (
+                      <SelectItem value="none" disabled>
+                        Keine Vorlagen vorhanden
+                      </SelectItem>
+                    ) : (
+                      templates.map((template) => (
+                        <SelectItem key={template.id} value={template.id}>
+                          {template.name}
+                          {template.year && ` (${template.year})`}
+                        </SelectItem>
+                      ))
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Durchgang *</Label>
+                <Select
+                  value={selectedImportCycleId}
+                  onValueChange={setSelectedImportCycleId}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Durchgang wählen..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {livestockCounts.map((cycle) => (
+                      <SelectItem key={cycle.id} value={cycle.id}>
+                        {cycle.durchgang_name || `Durchgang vom ${formatDate(cycle.start_date)}`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Preview */}
+            {importPreview.length > 0 && (
+              <div className="space-y-2">
+                <Label>Vorschau der Buchungen</Label>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Kostenart</TableHead>
+                        <TableHead>Beschreibung</TableHead>
+                        <TableHead>Verteilung</TableHead>
+                        <TableHead className="text-right">Betrag</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {importPreview.map(({ item, calculatedAmount }) => (
+                        <TableRow key={item.id}>
+                          <TableCell className="font-medium">
+                            {item.cost_types?.name}
+                          </TableCell>
+                          <TableCell className="text-muted-foreground">
+                            {item.description || '-'}
+                          </TableCell>
+                          <TableCell>
+                            <span className="text-xs px-2 py-1 rounded bg-muted">
+                              {item.allocation_type === 'fixed' && 'Fest'}
+                              {item.allocation_type === 'per_animal' && 'Pro Tier'}
+                              {item.allocation_type === 'per_day' && 'Pro Tag'}
+                            </span>
+                          </TableCell>
+                          <TableCell className="text-right font-medium">
+                            {formatCurrency(calculatedAmount)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      <TableRow className="bg-muted/50">
+                        <TableCell colSpan={3} className="font-semibold">
+                          Summe
+                        </TableCell>
+                        <TableCell className="text-right font-bold">
+                          {formatCurrency(
+                            importPreview.reduce((sum, { calculatedAmount }) => sum + calculatedAmount, 0)
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+
+            {selectedTemplateId && selectedImportCycleId && importPreview.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                Die ausgewählte Vorlage enthält keine Positionen.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowImportDialog(false)}
+              disabled={importing}
+            >
+              Abbrechen
+            </Button>
+            <Button
+              onClick={handleImportFromTemplate}
+              disabled={importing || importPreview.length === 0}
+            >
+              {importing ? 'Importiere...' : `${importPreview.length} Buchungen importieren`}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -13,6 +13,8 @@ import { TableWidget } from './table-widget'
 import { CycleTableWidget } from './cycle-table-widget'
 import { CycleStatWidget } from './cycle-stat-widget'
 import { CycleChartWidget } from './cycle-chart-widget'
+import { CycleComparisonWidget } from './cycle-comparison-widget'
+import { FeedComparisonWidget } from './feed-comparison-widget'
 import { SupplierTableWidget } from './supplier-table-widget'
 import { SupplierChartWidget } from './supplier-chart-widget'
 import { GaugeWidget } from './gauge-widget'
@@ -79,6 +81,30 @@ export function WidgetRenderer({
       widgetName === 'cycle_profit_chart' || widgetName === 'cycle_performance_chart') {
     return (
       <CycleChartWidget
+        widget={widget}
+        isEditMode={isEditMode}
+        onConfigure={handleConfigure}
+        onDelete={handleDelete}
+      />
+    )
+  }
+
+  // Check for cycle comparison widget
+  if (widgetName === 'cycle_comparison' || widgetName?.includes('cycle_comparison')) {
+    return (
+      <CycleComparisonWidget
+        widget={widget}
+        isEditMode={isEditMode}
+        onConfigure={handleConfigure}
+        onDelete={handleDelete}
+      />
+    )
+  }
+
+  // Check for feed comparison widget
+  if (widgetName === 'feed_comparison' || widgetName?.includes('feed_comparison')) {
+    return (
+      <FeedComparisonWidget
         widget={widget}
         isEditMode={isEditMode}
         onConfigure={handleConfigure}
