@@ -6,6 +6,7 @@ import { CookieConsentProvider } from '@/contexts/cookie-consent-context'
 import { CookieBanner } from '@/components/cookie-banner'
 import { CookieSettingsDialog } from '@/components/cookie-settings-dialog'
 import { AuthErrorBoundary } from '@/components/auth/auth-error-boundary'
+import { QueryProvider } from '@/components/providers/query-provider'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -74,14 +75,16 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <AuthErrorBoundary>
-          <CookieConsentProvider>
-            {children}
-            <Toaster />
-            <CookieBanner />
-            <CookieSettingsDialog />
-          </CookieConsentProvider>
-        </AuthErrorBoundary>
+        <QueryProvider>
+          <AuthErrorBoundary>
+            <CookieConsentProvider>
+              {children}
+              <Toaster />
+              <CookieBanner />
+              <CookieSettingsDialog />
+            </CookieConsentProvider>
+          </AuthErrorBoundary>
+        </QueryProvider>
       </body>
     </html>
   );

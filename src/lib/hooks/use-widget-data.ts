@@ -4,11 +4,17 @@
  * Hooks for fetching widget data with farm isolation
  * Uses centralized feed-calculations utilities for consistent cost calculations
  * Includes hooks for stat, chart, table, heatmap, waterfall, and scatter widgets
+ *
+ * Now uses TanStack Query for automatic caching and request deduplication:
+ * - Multiple widgets with same data needs = single query
+ * - Data cached for 5 minutes (stale-while-revalidate)
+ * - Navigation back to dashboard = instant cached data
  */
 
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { createClient } from '@/lib/supabase/client'
 import { useFarmStore } from '@/lib/stores/farm-store'
 import { useDashboardStore } from '@/lib/stores/dashboard-store'
@@ -31,6 +37,79 @@ import {
   ChartData,
   TableData,
 } from '@/types/dashboard'
+
+// ============================================================================
+// SHARED CONSUMPTION DATA HOOK (TanStack Query cached)
+// ============================================================================
+
+/**
+ * Query keys for consumption data - ensures consistent caching
+ */
+const consumptionQueryKeys = {
+  all: ['consumption'] as const,
+  byRange: (farmId: string, startDate: string, endDate: string) =>
+    [...consumptionQueryKeys.all, farmId, startDate, endDate] as const,
+}
+
+/**
+ * Shared hook for consumption data with TanStack Query caching.
+ * Multiple widgets using this with the same params = single query (deduplication)
+ */
+function useSharedConsumptionData(
+  farmId: string | null,
+  startDate: string,
+  endDate: string,
+  enabled: boolean = true
+) {
+  const supabase = createClient()
+
+  return useQuery({
+    queryKey: consumptionQueryKeys.byRange(farmId || '', startDate, endDate),
+    queryFn: async () => {
+      if (!farmId) return { consumption: [], priceTiers: [] }
+      return loadConsumptionWithCosts(supabase, farmId, startDate, endDate)
+    },
+    enabled: !!farmId && !!startDate && !!endDate && enabled,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes cache
+  })
+}
+
+/**
+ * Helper to compute date range based on widget config or global range
+ */
+function useDateRange(config: { timeRange?: string }, globalDateRange: { startDate: string; endDate: string } | null) {
+  return useMemo(() => {
+    let startDateStr: string
+    let endDateStr: string
+    let daysAgo: number
+
+    if (config.timeRange) {
+      const timeRange = config.timeRange
+      daysAgo = parseInt(timeRange.replace('d', ''))
+      const endDate = new Date()
+      const startDate = new Date()
+      startDate.setDate(startDate.getDate() - daysAgo)
+      startDateStr = startDate.toISOString().split('T')[0]
+      endDateStr = endDate.toISOString().split('T')[0]
+    } else if (globalDateRange) {
+      startDateStr = globalDateRange.startDate
+      endDateStr = globalDateRange.endDate
+      const start = new Date(startDateStr)
+      const end = new Date(endDateStr)
+      daysAgo = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
+    } else {
+      daysAgo = 30
+      const endDate = new Date()
+      const startDate = new Date()
+      startDate.setDate(startDate.getDate() - daysAgo)
+      startDateStr = startDate.toISOString().split('T')[0]
+      endDateStr = endDate.toISOString().split('T')[0]
+    }
+
+    return { startDate: startDateStr, endDate: endDateStr, daysAgo }
+  }, [config.timeRange, globalDateRange?.startDate, globalDateRange?.endDate])
+}
 
 // ============================================================================
 // STAT WIDGET DATA
@@ -778,77 +857,42 @@ export function useStatWidgetData(widget: WidgetInstance) {
 }
 
 // ============================================================================
-// CHART WIDGET DATA
+// CHART WIDGET DATA (TanStack Query cached)
 // ============================================================================
 
 export function useChartWidgetData(widget: WidgetInstance) {
   const { currentFarmId } = useFarmStore()
   const { globalDateRange } = useDashboardStore()
-  const [data, setData] = useState<any>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
   const config = widget.config as ChartWidgetConfig
 
-  const fetchData = useCallback(async () => {
-    if (!currentFarmId) return
-
-    setIsLoading(true)
-    setError(null)
-
-    const supabase = createClient()
-
-    try {
-      let startDateStr: string
-      let endDateStr: string
-
-      // If widget has fixed timeRange, use that; otherwise use global date range
-      if (config.timeRange) {
-        // Widget has fixed time range
-        const timeRangeValue = typeof config.timeRange === 'string'
-          ? config.timeRange
-          : config.timeRange?.value || '30d'
-        const daysAgo = parseInt(timeRangeValue.replace('d', ''))
-        const endDate = new Date()
-        const startDate = new Date()
-        startDate.setDate(startDate.getDate() - daysAgo)
-        startDateStr = startDate.toISOString().split('T')[0]
-        endDateStr = endDate.toISOString().split('T')[0]
-      } else if (globalDateRange) {
-        // Use global dashboard date range
-        startDateStr = globalDateRange.startDate
-        endDateStr = globalDateRange.endDate
-      } else {
-        // Fallback to last 30 days
-        const endDate = new Date()
-        const startDate = new Date()
-        startDate.setDate(startDate.getDate() - 30)
-        startDateStr = startDate.toISOString().split('T')[0]
-        endDateStr = endDate.toISOString().split('T')[0]
-      }
-
-      // Use centralized utility for consistent cost calculations
-      const { consumption } = await loadConsumptionWithCosts(
-        supabase,
-        currentFarmId,
-        startDateStr,
-        endDateStr
-      )
-
-      setData(consumption || [])
-    } catch (err) {
-      console.error('Error fetching chart widget data:', err)
-      setError('Fehler beim Laden der Daten')
-    } finally {
-      setIsLoading(false)
+  // Compute time range config, handling both string and object formats
+  const timeRangeConfig = useMemo(() => {
+    if (config.timeRange) {
+      const timeRangeValue = typeof config.timeRange === 'string'
+        ? config.timeRange
+        : (config.timeRange as any)?.value || '30d'
+      return { timeRange: timeRangeValue }
     }
-  }, [currentFarmId, config.timeRange, globalDateRange])
+    return {}
+  }, [config.timeRange])
 
-  useEffect(() => {
-    fetchData()
-  }, [fetchData])
+  // Use shared date range computation
+  const { startDate, endDate } = useDateRange(timeRangeConfig, globalDateRange)
 
-  return { data, isLoading, error, refetch: fetchData }
+  // Use shared consumption data hook with TanStack Query caching
+  // Multiple chart widgets with same date range = single query (deduplication!)
+  const {
+    data: consumptionResult,
+    isLoading,
+    error: queryError,
+    refetch,
+  } = useSharedConsumptionData(currentFarmId, startDate, endDate)
+
+  // Extract consumption data
+  const data = consumptionResult?.consumption || []
+  const error = queryError ? 'Fehler beim Laden der Daten' : null
+
+  return { data, isLoading, error, refetch }
 }
 
 // ============================================================================
