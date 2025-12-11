@@ -24,6 +24,8 @@ import {
   calculateCycleMetrics,
   calculateAreaMetrics,
   calculateFeedComponentSummary,
+  filterConsumptionByTimeframe,
+  ConsumptionItem,
 } from '@/lib/utils/kpi-calculations'
 import {
   WidgetInstance,
@@ -109,10 +111,20 @@ async function loadCycleMetricsBulk(
 
   // Calculate metrics for each cycle using pre-loaded data
   return cycles.map(cycle => {
-    const cycleConsumption = allConsumption.filter(
+    // First: date-based pre-filter for efficiency
+    const dateFilteredConsumption = allConsumption.filter(
       (item: any) => item.date >= cycle.start_date &&
               (!cycle.end_date || item.date <= cycle.end_date)
     )
+
+    // Then: Filter by area/group using the same logic as evaluation page
+    // This ensures consumption is only counted for areas/groups that belong to this cycle
+    const cycleConsumption = filterConsumptionByTimeframe(
+      dateFilteredConsumption as ConsumptionItem[],
+      cycle.livestock_count_details || [],
+      cycle.end_date
+    )
+
     const cycleCostTransactions = (allCostTransactions || [])
       .filter((ct: any) => ct.livestock_count_id === cycle.id)
 
@@ -2021,30 +2033,86 @@ export function useWaterfallWidgetData(widget: WidgetInstance) {
     try {
       const supabase = createClient()
 
-      // Get cycle data
-      let cycleId: string | undefined
+      // Get cycle data with details
+      let cycleQuery = supabase
+        .from('livestock_counts')
+        .select(`
+          *,
+          livestock_count_details(
+            id, count, area_id, area_group_id, start_date, end_date,
+            expected_weight_per_animal, actual_weight_per_animal,
+            buy_price_per_animal, sell_price_per_animal,
+            is_start_group, is_end_group
+          )
+        `)
+        .eq('farm_id', currentFarmId)
 
       if (config.cycleSelector?.cycleId) {
-        cycleId = config.cycleSelector.cycleId
+        cycleQuery = cycleQuery.eq('id', config.cycleSelector.cycleId)
       } else {
-        // Get most recent cycle
-        const { data: latestCycle } = await supabase
-          .from('livestock_counts')
-          .select('id')
-          .eq('farm_id', currentFarmId)
-          .order('start_date', { ascending: false })
-          .limit(1)
-          .single()
-
-        cycleId = latestCycle?.id
+        cycleQuery = cycleQuery.order('start_date', { ascending: false }).limit(1)
       }
 
-      if (!cycleId) {
+      const { data: cycles } = await cycleQuery
+
+      const cycle = cycles?.[0]
+      if (!cycle) {
         setData({ steps: [], summary: { total: 0 } })
         return
       }
 
-      const metrics = await calculateCycleMetrics(cycleId, currentFarmId)
+      // Load consumption data
+      const { consumption: allConsumption } = await loadConsumptionWithCosts(
+        supabase,
+        currentFarmId,
+        cycle.start_date,
+        cycle.end_date
+      )
+
+      // Filter consumption by area/group timeframe
+      const dateFilteredConsumption = allConsumption.filter(
+        (item: any) => item.date >= cycle.start_date &&
+                (!cycle.end_date || item.date <= cycle.end_date)
+      )
+      const consumption = filterConsumptionByTimeframe(
+        dateFilteredConsumption as ConsumptionItem[],
+        cycle.livestock_count_details || [],
+        cycle.end_date
+      )
+
+      // Load cost transactions
+      const { data: costTransactionsRaw } = await supabase
+        .from('cost_transactions')
+        .select('id, amount, transaction_date, cost_types(name, category)')
+        .eq('livestock_count_id', cycle.id)
+
+      const costTransactions = (costTransactionsRaw || []).map((ct: any) => ({
+        id: ct.id,
+        amount: ct.amount,
+        transaction_date: ct.transaction_date,
+        cost_types: ct.cost_types
+      }))
+
+      // Load income transactions
+      const { data: incomeTransactionsRaw } = await supabase
+        .from('income_transactions')
+        .select('id, amount, transaction_date, income_type')
+        .eq('livestock_count_id', cycle.id)
+
+      const incomeTransactions = (incomeTransactionsRaw || []).map((it: any) => ({
+        id: it.id,
+        amount: it.amount,
+        transaction_date: it.transaction_date,
+        income_type: it.income_type
+      }))
+
+      // Calculate metrics using the same function as evaluation page
+      const metrics = calculateCycleMetrics(
+        cycle as any,
+        consumption as any,
+        costTransactions,
+        incomeTransactions
+      )
 
       // Build waterfall steps
       const steps: any[] = []
@@ -2053,12 +2121,12 @@ export function useWaterfallWidgetData(widget: WidgetInstance) {
       // Start with revenue
       steps.push({
         label: 'Erlös',
-        value: metrics.revenue,
-        cumulativeValue: metrics.revenue,
+        value: metrics.totalRevenue,
+        cumulativeValue: metrics.totalRevenue,
         baseValue: 0,
         isTotal: false,
       })
-      cumulative = metrics.revenue
+      cumulative = metrics.totalRevenue
 
       // Subtract feed costs
       steps.push({
