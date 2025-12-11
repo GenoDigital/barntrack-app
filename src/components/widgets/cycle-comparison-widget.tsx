@@ -317,6 +317,7 @@ export function CycleComparisonWidget({
               <TableHead className="whitespace-nowrap text-right">g/Tag</TableHead>
               <TableHead className="whitespace-nowrap text-right">Futter/Tier</TableHead>
               <TableHead className="whitespace-nowrap text-right">Futter/Tag</TableHead>
+              <TableHead className="whitespace-nowrap text-right">Sonst. Kosten</TableHead>
               <TableHead className="whitespace-nowrap text-right">Prämien/Tier</TableHead>
               <TableHead className="whitespace-nowrap text-right">Gewinn/Tier</TableHead>
             </TableRow>
@@ -374,6 +375,15 @@ export function CycleComparisonWidget({
                     )}
                   </TableCell>
                   <TableCell className="text-right">{formatCurrency(cycle.dailyFeedCostPerAnimal)}</TableCell>
+                  <TableCell className={cn(
+                    'text-right',
+                    cycle.additionalCostsPerAnimal > 0 && 'text-red-600'
+                  )}>
+                    {cycle.additionalCostsPerAnimal > 0
+                      ? formatCurrency(cycle.additionalCostsPerAnimal)
+                      : '-'
+                    }
+                  </TableCell>
                   <TableCell className={cn(
                     'text-right',
                     cycle.additionalIncomePerAnimal > 0 && 'text-green-600'
@@ -435,7 +445,7 @@ export function CycleComparisonWidget({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={15} className="text-center text-muted-foreground">
+                <TableCell colSpan={16} className="text-center text-muted-foreground">
                   Keine Durchgänge vorhanden
                 </TableCell>
               </TableRow>
