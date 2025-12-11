@@ -13,7 +13,7 @@ import { BaseWidgetProps } from '@/types/dashboard'
 import { useFarmStore } from '@/lib/stores/farm-store'
 import { createClient } from '@/lib/supabase/client'
 import { loadConsumptionWithCosts } from '@/lib/utils/feed-calculations'
-import { calculateCycleMetrics, LivestockCount, ConsumptionItem, CostTransaction, IncomeTransaction } from '@/lib/utils/kpi-calculations'
+import { calculateCycleMetrics, filterConsumptionByTimeframe, LivestockCount, ConsumptionItem, CostTransaction, IncomeTransaction } from '@/lib/utils/kpi-calculations'
 import {
   Table,
   TableBody,
@@ -139,10 +139,18 @@ export function CycleComparisonWidget({
 
       // Process each cycle using pre-loaded data (fast, in-memory filtering)
       const comparisonData = cycles.map((cycle): CycleComparisonData => {
-        // Filter consumption for this cycle's date range (in-memory)
-        const consumption = (allConsumption || []).filter(
+        // First: date-based pre-filter for efficiency
+        const dateFilteredConsumption = (allConsumption || []).filter(
           (item: any) => item.date >= cycle.start_date &&
                   (!cycle.end_date || item.date <= cycle.end_date)
+        )
+
+        // Then: Filter by area/group using the same logic as evaluation page
+        // This ensures consumption is only counted for areas/groups that belong to this cycle
+        const consumption = filterConsumptionByTimeframe(
+          dateFilteredConsumption as ConsumptionItem[],
+          cycle.livestock_count_details || [],
+          cycle.end_date
         )
 
         // Filter cost transactions for this cycle
