@@ -80,79 +80,104 @@ export function FeedComparisonWidget({
 
       if (cyclesError) throw cyclesError
 
+      if (!cycles || cycles.length === 0) {
+        setFeedTypes([])
+        setData([])
+        setIsLoading(false)
+        return
+      }
+
+      // BULK LOADING: Find overall date range across all cycles
+      const startDates = cycles.map(c => c.start_date).filter(Boolean)
+      const endDates = cycles.map(c => c.end_date).filter(Boolean)
+      const minDate = startDates.length > 0
+        ? startDates.reduce((a, b) => a < b ? a : b)
+        : new Date().toISOString().split('T')[0]
+      const maxDate = endDates.length > 0
+        ? endDates.reduce((a, b) => a > b ? a : b)
+        : new Date().toISOString().split('T')[0]
+
+      // Load ALL consumption data ONCE for the entire date range
+      const { consumption: allConsumption } = await loadConsumptionWithCosts(
+        supabase,
+        currentFarmId,
+        minDate,
+        maxDate
+      )
+
+      // Load ALL cost transactions for all cycles in one query
+      const cycleIds = cycles.map(c => c.id)
+      const { data: allCostTransactionsRaw } = await supabase
+        .from('cost_transactions')
+        .select('id, amount, transaction_date, livestock_count_id, cost_types(name, category)')
+        .in('livestock_count_id', cycleIds)
+
       // Collect all feed types used across all cycles
       const feedTypesMap = new Map<string, FeedTypeColumn>()
 
-      // Process each cycle
-      const cycleDataList = await Promise.all(
-        (cycles || []).map(async (cycle): Promise<CycleFeedData> => {
-          // Load consumption for this cycle
-          const { consumption } = await loadConsumptionWithCosts(
-            supabase,
-            currentFarmId,
-            cycle.start_date,
-            cycle.end_date
-          )
+      // Process each cycle using pre-loaded data (fast, in-memory filtering)
+      const cycleDataList = cycles.map((cycle): CycleFeedData => {
+        // Filter consumption for this cycle's date range (in-memory)
+        const consumption = (allConsumption || []).filter(
+          (item: any) => item.date >= cycle.start_date &&
+                  (!cycle.end_date || item.date <= cycle.end_date)
+        )
 
-          // Calculate cycle metrics to get total animals
-          const { data: costTransactionsRaw } = await supabase
-            .from('cost_transactions')
-            .select('id, amount, transaction_date, cost_types(name, category)')
-            .eq('livestock_count_id', cycle.id)
-
-          const costTransactions: CostTransaction[] = (costTransactionsRaw || []).map(ct => ({
+        // Filter cost transactions for this cycle
+        const costTransactions: CostTransaction[] = (allCostTransactionsRaw || [])
+          .filter((ct: any) => ct.livestock_count_id === cycle.id)
+          .map(ct => ({
             id: ct.id,
             amount: ct.amount,
             transaction_date: ct.transaction_date,
             cost_types: ct.cost_types as { name: string; category: string | null } | undefined
           }))
 
-          const metrics = calculateCycleMetrics(
-            cycle as LivestockCount,
-            consumption as ConsumptionItem[],
-            costTransactions
-          )
+        const metrics = calculateCycleMetrics(
+          cycle as LivestockCount,
+          consumption as ConsumptionItem[],
+          costTransactions
+        )
 
-          // Calculate feed component summary
-          const feedComponents = calculateFeedComponentSummary(
-            cycle as LivestockCount,
-            consumption as ConsumptionItem[]
-          )
+        // Calculate feed component summary
+        const feedComponents = calculateFeedComponentSummary(
+          cycle as LivestockCount,
+          consumption as ConsumptionItem[]
+        )
 
-          // Build feed quantities map (quantity per animal)
-          const feedQuantities: { [feedTypeId: string]: number } = {}
-          let totalQuantityPerAnimal = 0
+        // Build feed quantities map (quantity per animal)
+        const feedQuantities: { [feedTypeId: string]: number } = {}
+        let totalQuantityPerAnimal = 0
 
-          feedComponents.forEach(component => {
-            // Add to global feed types map
-            if (!feedTypesMap.has(component.feedTypeId)) {
-              feedTypesMap.set(component.feedTypeId, {
-                id: component.feedTypeId,
-                name: component.feedTypeName,
-                unit: component.unit,
-              })
-            }
-
-            // Calculate quantity per animal
-            const quantityPerAnimal = metrics.totalAnimals > 0
-              ? component.totalQuantity / metrics.totalAnimals
-              : 0
-
-            feedQuantities[component.feedTypeId] = quantityPerAnimal
-            totalQuantityPerAnimal += quantityPerAnimal
-          })
-
-          return {
-            id: cycle.id,
-            name: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
-            duration: metrics.cycleDuration,
-            totalAnimals: metrics.totalAnimals,
-            status: cycle.end_date ? 'completed' : 'active',
-            feedQuantities,
-            totalQuantityPerAnimal,
+        feedComponents.forEach(component => {
+          // Add to global feed types map
+          if (!feedTypesMap.has(component.feedTypeId)) {
+            feedTypesMap.set(component.feedTypeId, {
+              id: component.feedTypeId,
+              name: component.feedTypeName,
+              unit: component.unit,
+            })
           }
+
+          // Calculate quantity per animal
+          const quantityPerAnimal = metrics.totalAnimals > 0
+            ? component.totalQuantity / metrics.totalAnimals
+            : 0
+
+          feedQuantities[component.feedTypeId] = quantityPerAnimal
+          totalQuantityPerAnimal += quantityPerAnimal
         })
-      )
+
+        return {
+          id: cycle.id,
+          name: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
+          duration: metrics.cycleDuration,
+          totalAnimals: metrics.totalAnimals,
+          status: cycle.end_date ? 'completed' : 'active',
+          feedQuantities,
+          totalQuantityPerAnimal,
+        }
+      })
 
       // Convert feed types map to sorted array (by name)
       const sortedFeedTypes = Array.from(feedTypesMap.values())

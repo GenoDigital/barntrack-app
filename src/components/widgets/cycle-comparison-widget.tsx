@@ -96,128 +96,155 @@ export function CycleComparisonWidget({
 
       if (cyclesError) throw cyclesError
 
-      // Process each cycle
-      const comparisonData = await Promise.all(
-        (cycles || []).map(async (cycle): Promise<CycleComparisonData> => {
-          // Load consumption for this cycle
-          const { consumption } = await loadConsumptionWithCosts(
-            supabase,
-            currentFarmId,
-            cycle.start_date,
-            cycle.end_date
-          )
+      if (!cycles || cycles.length === 0) {
+        setData([])
+        setIsLoading(false)
+        return
+      }
 
-          // Load cost transactions
-          const { data: costTransactionsRaw } = await supabase
-            .from('cost_transactions')
-            .select('id, amount, transaction_date, cost_types(name, category)')
-            .eq('livestock_count_id', cycle.id)
+      // BULK LOADING: Find overall date range across all cycles
+      const startDates = cycles.map(c => c.start_date).filter(Boolean)
+      const endDates = cycles.map(c => c.end_date).filter(Boolean)
+      const minDate = startDates.length > 0
+        ? startDates.reduce((a, b) => a < b ? a : b)
+        : new Date().toISOString().split('T')[0]
+      const maxDate = endDates.length > 0
+        ? endDates.reduce((a, b) => a > b ? a : b)
+        : new Date().toISOString().split('T')[0]
 
-          const costTransactions: CostTransaction[] = (costTransactionsRaw || []).map(ct => ({
+      // Load ALL consumption data ONCE for the entire date range
+      const { consumption: allConsumption } = await loadConsumptionWithCosts(
+        supabase,
+        currentFarmId,
+        minDate,
+        maxDate
+      )
+
+      // Load ALL cost transactions for all cycles in one query
+      const cycleIds = cycles.map(c => c.id)
+      const { data: allCostTransactionsRaw } = await supabase
+        .from('cost_transactions')
+        .select('id, amount, transaction_date, livestock_count_id, cost_types(name, category)')
+        .in('livestock_count_id', cycleIds)
+
+      // Load ALL income transactions for all cycles in one query
+      const { data: allIncomeTransactionsRaw } = await supabase
+        .from('income_transactions')
+        .select('id, amount, transaction_date, income_type, livestock_count_id')
+        .in('livestock_count_id', cycleIds)
+
+      // Process each cycle using pre-loaded data (fast, in-memory filtering)
+      const comparisonData = cycles.map((cycle): CycleComparisonData => {
+        // Filter consumption for this cycle's date range (in-memory)
+        const consumption = (allConsumption || []).filter(
+          (item: any) => item.date >= cycle.start_date &&
+                  (!cycle.end_date || item.date <= cycle.end_date)
+        )
+
+        // Filter cost transactions for this cycle
+        const costTransactions: CostTransaction[] = (allCostTransactionsRaw || [])
+          .filter((ct: any) => ct.livestock_count_id === cycle.id)
+          .map(ct => ({
             id: ct.id,
             amount: ct.amount,
             transaction_date: ct.transaction_date,
             cost_types: ct.cost_types as { name: string; category: string | null } | undefined
           }))
 
-          // Load income transactions
-          const { data: incomeTransactionsRaw } = await supabase
-            .from('income_transactions')
-            .select('id, amount, transaction_date, income_type')
-            .eq('livestock_count_id', cycle.id)
-
-          const incomeTransactions: IncomeTransaction[] = (incomeTransactionsRaw || []).map(it => ({
+        // Filter income transactions for this cycle
+        const incomeTransactions: IncomeTransaction[] = (allIncomeTransactionsRaw || [])
+          .filter((it: any) => it.livestock_count_id === cycle.id)
+          .map(it => ({
             id: it.id,
             amount: it.amount,
             transaction_date: it.transaction_date,
             income_type: it.income_type
           }))
 
-          // Calculate metrics using centralized function
-          const metrics = calculateCycleMetrics(
-            cycle as LivestockCount,
-            consumption as ConsumptionItem[],
-            costTransactions,
-            incomeTransactions
-          )
+        // Calculate metrics using centralized function
+        const metrics = calculateCycleMetrics(
+          cycle as LivestockCount,
+          consumption as ConsumptionItem[],
+          costTransactions,
+          incomeTransactions
+        )
 
-          // Calculate buy/sell prices per animal from start/end groups
-          let buyPricePerAnimal: number | null = null
-          let sellPricePerAnimal: number | null = null
-          let startAnimals = 0
-          let endAnimals = 0
+        // Calculate buy/sell prices per animal from start/end groups
+        let buyPricePerAnimal: number | null = null
+        let sellPricePerAnimal: number | null = null
+        let startAnimals = 0
+        let endAnimals = 0
 
-          cycle.livestock_count_details?.forEach((detail: any) => {
-            if (detail.is_start_group && detail.buy_price_per_animal) {
-              buyPricePerAnimal = (buyPricePerAnimal || 0) + (detail.buy_price_per_animal * detail.count)
-              startAnimals += detail.count
-            }
-            if (detail.is_end_group && detail.sell_price_per_animal) {
-              sellPricePerAnimal = (sellPricePerAnimal || 0) + (detail.sell_price_per_animal * detail.count)
-              endAnimals += detail.count
-            }
-          })
-
-          // Calculate weighted average prices
-          if (buyPricePerAnimal !== null && startAnimals > 0) {
-            buyPricePerAnimal = buyPricePerAnimal / startAnimals
+        cycle.livestock_count_details?.forEach((detail: any) => {
+          if (detail.is_start_group && detail.buy_price_per_animal) {
+            buyPricePerAnimal = (buyPricePerAnimal || 0) + (detail.buy_price_per_animal * detail.count)
+            startAnimals += detail.count
           }
-          if (sellPricePerAnimal !== null && endAnimals > 0) {
-            sellPricePerAnimal = sellPricePerAnimal / endAnimals
-          }
-
-          // Fallback to cycle-level prices if no detail-level prices
-          if (buyPricePerAnimal === null && cycle.buy_price_per_animal) {
-            buyPricePerAnimal = cycle.buy_price_per_animal
-          }
-          if (sellPricePerAnimal === null && cycle.sell_price_per_animal) {
-            sellPricePerAnimal = cycle.sell_price_per_animal
-          }
-
-          const priceDifference = (sellPricePerAnimal !== null && buyPricePerAnimal !== null)
-            ? sellPricePerAnimal - buyPricePerAnimal
-            : null
-
-          // Get start/end weights
-          const startWeight = cycle.expected_weight_per_animal
-          const endWeight = cycle.actual_weight_per_animal
-          const weightGain = metrics.weightGain > 0 ? metrics.weightGain : null
-
-          // Calculate profit per animal
-          const profitPerAnimal = metrics.totalAnimals > 0
-            ? metrics.profitLoss / metrics.totalAnimals
-            : 0
-
-          return {
-            id: cycle.id,
-            name: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
-            startDate: cycle.start_date,
-            endDate: cycle.end_date,
-            duration: metrics.cycleDuration,
-            totalAnimals: metrics.totalAnimals,
-            buyPricePerAnimal,
-            sellPricePerAnimal,
-            priceDifference,
-            startWeight,
-            endWeight,
-            weightGain,
-            dailyGainGrams: metrics.dailyGainGrams,
-            netDailyGainGrams: metrics.netDailyGainGrams,
-            feedCostPerAnimal: metrics.feedCostPerAnimal,
-            dailyFeedCostPerAnimal: metrics.cycleDuration > 0
-              ? metrics.feedCostPerAnimal / metrics.cycleDuration
-              : 0,
-            consumptionFeedCostPerAnimal: metrics.totalAnimals > 0
-              ? metrics.consumptionFeedCost / metrics.totalAnimals
-              : 0,
-            feedCategoryTransactionCostPerAnimal: metrics.totalAnimals > 0
-              ? metrics.feedCategoryTransactionCosts / metrics.totalAnimals
-              : 0,
-            profitPerAnimal,
-            status: cycle.end_date ? 'completed' : 'active',
+          if (detail.is_end_group && detail.sell_price_per_animal) {
+            sellPricePerAnimal = (sellPricePerAnimal || 0) + (detail.sell_price_per_animal * detail.count)
+            endAnimals += detail.count
           }
         })
-      )
+
+        // Calculate weighted average prices
+        if (buyPricePerAnimal !== null && startAnimals > 0) {
+          buyPricePerAnimal = buyPricePerAnimal / startAnimals
+        }
+        if (sellPricePerAnimal !== null && endAnimals > 0) {
+          sellPricePerAnimal = sellPricePerAnimal / endAnimals
+        }
+
+        // Fallback to cycle-level prices if no detail-level prices
+        if (buyPricePerAnimal === null && cycle.buy_price_per_animal) {
+          buyPricePerAnimal = cycle.buy_price_per_animal
+        }
+        if (sellPricePerAnimal === null && cycle.sell_price_per_animal) {
+          sellPricePerAnimal = cycle.sell_price_per_animal
+        }
+
+        const priceDifference = (sellPricePerAnimal !== null && buyPricePerAnimal !== null)
+          ? sellPricePerAnimal - buyPricePerAnimal
+          : null
+
+        // Get start/end weights
+        const startWeight = cycle.expected_weight_per_animal
+        const endWeight = cycle.actual_weight_per_animal
+        const weightGain = metrics.weightGain > 0 ? metrics.weightGain : null
+
+        // Calculate profit per animal
+        const profitPerAnimal = metrics.totalAnimals > 0
+          ? metrics.profitLoss / metrics.totalAnimals
+          : 0
+
+        return {
+          id: cycle.id,
+          name: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
+          startDate: cycle.start_date,
+          endDate: cycle.end_date,
+          duration: metrics.cycleDuration,
+          totalAnimals: metrics.totalAnimals,
+          buyPricePerAnimal,
+          sellPricePerAnimal,
+          priceDifference,
+          startWeight,
+          endWeight,
+          weightGain,
+          dailyGainGrams: metrics.dailyGainGrams,
+          netDailyGainGrams: metrics.netDailyGainGrams,
+          feedCostPerAnimal: metrics.feedCostPerAnimal,
+          dailyFeedCostPerAnimal: metrics.cycleDuration > 0
+            ? metrics.feedCostPerAnimal / metrics.cycleDuration
+            : 0,
+          consumptionFeedCostPerAnimal: metrics.totalAnimals > 0
+            ? metrics.consumptionFeedCost / metrics.totalAnimals
+            : 0,
+          feedCategoryTransactionCostPerAnimal: metrics.totalAnimals > 0
+            ? metrics.feedCategoryTransactionCosts / metrics.totalAnimals
+            : 0,
+          profitPerAnimal,
+          status: cycle.end_date ? 'completed' : 'active',
+        }
+      })
 
       setData(comparisonData)
     } catch (err) {

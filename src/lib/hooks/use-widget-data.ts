@@ -76,6 +76,57 @@ function useSharedConsumptionData(
 }
 
 /**
+ * Helper to load all cycle metrics in bulk (prevents N+1 queries)
+ * Loads consumption and cost transactions ONCE for all cycles, then calculates metrics
+ */
+async function loadCycleMetricsBulk(
+  supabase: any,
+  farmId: string,
+  cycles: any[]
+): Promise<{ cycle: any; metrics: ReturnType<typeof calculateCycleMetrics> }[]> {
+  if (!cycles || cycles.length === 0) return []
+
+  // Find overall date range across all cycles
+  const startDates = cycles.map(c => c.start_date).filter(Boolean)
+  const endDates = cycles.map(c => c.end_date).filter(Boolean)
+  const minDate = startDates.length > 0 ? startDates.reduce((a, b) => a < b ? a : b) : new Date().toISOString().split('T')[0]
+  const maxDate = endDates.length > 0 ? endDates.reduce((a, b) => a > b ? a : b) : new Date().toISOString().split('T')[0]
+
+  // Load ALL consumption data ONCE
+  const { consumption: allConsumption } = await loadConsumptionWithCosts(
+    supabase,
+    farmId,
+    minDate,
+    maxDate
+  )
+
+  // Load ALL cost transactions for these cycles in one query
+  const cycleIds = cycles.map(c => c.id)
+  const { data: allCostTransactions } = await supabase
+    .from('cost_transactions')
+    .select('amount, livestock_count_id')
+    .in('livestock_count_id', cycleIds)
+
+  // Calculate metrics for each cycle using pre-loaded data
+  return cycles.map(cycle => {
+    const cycleConsumption = allConsumption.filter(
+      (item: any) => item.date >= cycle.start_date &&
+              (!cycle.end_date || item.date <= cycle.end_date)
+    )
+    const cycleCostTransactions = (allCostTransactions || [])
+      .filter((ct: any) => ct.livestock_count_id === cycle.id)
+
+    const metrics = calculateCycleMetrics(
+      cycle as any,
+      cycleConsumption as any,
+      cycleCostTransactions.map((ct: any) => ({ ...ct, transaction_date: '', cost_types: undefined }))
+    )
+
+    return { cycle, metrics }
+  })
+}
+
+/**
  * Helper to compute date range based on widget config or global range
  */
 function useDateRange(config: { timeRange?: string }, globalDateRange: { startDate: string; endDate: string } | null) {
@@ -285,6 +336,7 @@ export function useStatWidgetData(widget: WidgetInstance) {
         }
 
         case 'avg_cycle_profit': {
+          // OPTIMIZED: Use bulk loading helper instead of N+1 queries
           const { data: cycles } = await supabase
             .from('livestock_counts')
             .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
@@ -292,31 +344,8 @@ export function useStatWidgetData(widget: WidgetInstance) {
             .not('revenue', 'is', null)
 
           if (cycles && cycles.length > 0) {
-            // Use centralized KPI calculation for each cycle
-            const profitsPromises = cycles.map(async (cycle) => {
-              const { consumption } = await loadConsumptionWithCosts(
-                supabase,
-                currentFarmId,
-                cycle.start_date,
-                cycle.end_date
-              )
-
-              const { data: costTransactions } = await supabase
-                .from('cost_transactions')
-                .select('amount')
-                .eq('livestock_count_id', cycle.id)
-
-              // Use centralized calculation
-              const metrics = calculateCycleMetrics(
-                cycle as any,
-                consumption as any,
-                (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
-              )
-
-              return metrics.profitLoss
-            })
-
-            const profits = await Promise.all(profitsPromises)
+            const cycleMetrics = await loadCycleMetricsBulk(supabase, currentFarmId, cycles)
+            const profits = cycleMetrics.map(cm => cm.metrics.profitLoss)
             value = profits.reduce((a, b) => a + b, 0) / profits.length
           }
           subtitle = 'Durchschnittlicher Gewinn'
@@ -580,6 +609,7 @@ export function useStatWidgetData(widget: WidgetInstance) {
         }
 
         case 'best_cycle_profit': {
+          // OPTIMIZED: Use bulk loading helper instead of N+1 queries
           const { data: cycles } = await supabase
             .from('livestock_counts')
             .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
@@ -587,27 +617,8 @@ export function useStatWidgetData(widget: WidgetInstance) {
             .not('revenue', 'is', null)
 
           if (cycles && cycles.length > 0) {
-            const profitsPromises = cycles.map(async (cycle) => {
-              const { consumption } = await loadConsumptionWithCosts(
-                supabase,
-                currentFarmId,
-                cycle.start_date,
-                cycle.end_date
-              )
-              const { data: costTransactions } = await supabase
-                .from('cost_transactions')
-                .select('amount')
-                .eq('livestock_count_id', cycle.id)
-
-              const metrics = calculateCycleMetrics(
-                cycle as any,
-                consumption as any,
-                (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
-              )
-              return metrics.profitLoss
-            })
-
-            const profits = await Promise.all(profitsPromises)
+            const cycleMetrics = await loadCycleMetricsBulk(supabase, currentFarmId, cycles)
+            const profits = cycleMetrics.map(cm => cm.metrics.profitLoss)
             value = Math.max(...profits)
             subtitle = 'Bester Durchgang'
           }
@@ -615,6 +626,7 @@ export function useStatWidgetData(widget: WidgetInstance) {
         }
 
         case 'worst_cycle_profit': {
+          // OPTIMIZED: Use bulk loading helper instead of N+1 queries
           const { data: cycles } = await supabase
             .from('livestock_counts')
             .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
@@ -622,27 +634,8 @@ export function useStatWidgetData(widget: WidgetInstance) {
             .not('revenue', 'is', null)
 
           if (cycles && cycles.length > 0) {
-            const profitsPromises = cycles.map(async (cycle) => {
-              const { consumption } = await loadConsumptionWithCosts(
-                supabase,
-                currentFarmId,
-                cycle.start_date,
-                cycle.end_date
-              )
-              const { data: costTransactions } = await supabase
-                .from('cost_transactions')
-                .select('amount')
-                .eq('livestock_count_id', cycle.id)
-
-              const metrics = calculateCycleMetrics(
-                cycle as any,
-                consumption as any,
-                (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
-              )
-              return metrics.profitLoss
-            })
-
-            const profits = await Promise.all(profitsPromises)
+            const cycleMetrics = await loadCycleMetricsBulk(supabase, currentFarmId, cycles)
+            const profits = cycleMetrics.map(cm => cm.metrics.profitLoss)
             value = Math.min(...profits)
             subtitle = 'Schlechtester Durchgang'
           }
@@ -650,6 +643,7 @@ export function useStatWidgetData(widget: WidgetInstance) {
         }
 
         case 'avg_fcr_all_cycles': {
+          // OPTIMIZED: Use bulk loading helper instead of N+1 queries
           const { data: cycles } = await supabase
             .from('livestock_counts')
             .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
@@ -657,27 +651,8 @@ export function useStatWidgetData(widget: WidgetInstance) {
             .not('end_date', 'is', null)
 
           if (cycles && cycles.length > 0) {
-            const fcrPromises = cycles.map(async (cycle) => {
-              const { consumption } = await loadConsumptionWithCosts(
-                supabase,
-                currentFarmId,
-                cycle.start_date,
-                cycle.end_date
-              )
-              const { data: costTransactions } = await supabase
-                .from('cost_transactions')
-                .select('amount')
-                .eq('livestock_count_id', cycle.id)
-
-              const metrics = calculateCycleMetrics(
-                cycle as any,
-                consumption as any,
-                (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
-              )
-              return metrics.feedConversionRatio
-            })
-
-            const fcrs = await Promise.all(fcrPromises)
+            const cycleMetrics = await loadCycleMetricsBulk(supabase, currentFarmId, cycles)
+            const fcrs = cycleMetrics.map(cm => cm.metrics.feedConversionRatio)
             const validFcrs = fcrs.filter(fcr => fcr > 0 && isFinite(fcr))
             if (validFcrs.length > 0) {
               value = validFcrs.reduce((a, b) => a + b, 0) / validFcrs.length
@@ -701,7 +676,7 @@ export function useStatWidgetData(widget: WidgetInstance) {
         }
 
         case 'profitable_cycles_rate': {
-          // MULTI-CYCLE OVERVIEW: Calculate percentage of profitable cycles
+          // OPTIMIZED: Use bulk loading helper instead of N+1 queries
           const { data: cycles } = await supabase
             .from('livestock_counts')
             .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
@@ -709,28 +684,8 @@ export function useStatWidgetData(widget: WidgetInstance) {
             .not('end_date', 'is', null)
 
           if (cycles && cycles.length > 0) {
-            const profitPromises = cycles.map(async (cycle) => {
-              const { consumption } = await loadConsumptionWithCosts(
-                supabase,
-                currentFarmId,
-                cycle.start_date,
-                cycle.end_date
-              )
-              const { data: costTransactions } = await supabase
-                .from('cost_transactions')
-                .select('amount')
-                .eq('livestock_count_id', cycle.id)
-
-              const metrics = calculateCycleMetrics(
-                cycle as any,
-                consumption as any,
-                (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
-              )
-              return metrics.profitLoss > 0
-            })
-
-            const profitResults = await Promise.all(profitPromises)
-            const profitableCount = profitResults.filter(Boolean).length
+            const cycleMetrics = await loadCycleMetricsBulk(supabase, currentFarmId, cycles)
+            const profitableCount = cycleMetrics.filter(cm => cm.metrics.profitLoss > 0).length
             value = (profitableCount / cycles.length) * 100
             subtitle = `${profitableCount} von ${cycles.length} profitabel`
           }
@@ -738,7 +693,7 @@ export function useStatWidgetData(widget: WidgetInstance) {
         }
 
         case 'total_profit_all_cycles': {
-          // MULTI-CYCLE OVERVIEW: Sum all profits/losses
+          // OPTIMIZED: Use bulk loading helper instead of N+1 queries
           const { data: cycles } = await supabase
             .from('livestock_counts')
             .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
@@ -746,27 +701,8 @@ export function useStatWidgetData(widget: WidgetInstance) {
             .not('end_date', 'is', null)
 
           if (cycles && cycles.length > 0) {
-            const profitPromises = cycles.map(async (cycle) => {
-              const { consumption } = await loadConsumptionWithCosts(
-                supabase,
-                currentFarmId,
-                cycle.start_date,
-                cycle.end_date
-              )
-              const { data: costTransactions } = await supabase
-                .from('cost_transactions')
-                .select('amount')
-                .eq('livestock_count_id', cycle.id)
-
-              const metrics = calculateCycleMetrics(
-                cycle as any,
-                consumption as any,
-                (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
-              )
-              return metrics.profitLoss
-            })
-
-            const profits = await Promise.all(profitPromises)
+            const cycleMetrics = await loadCycleMetricsBulk(supabase, currentFarmId, cycles)
+            const profits = cycleMetrics.map(cm => cm.metrics.profitLoss)
             value = profits.reduce((a, b) => a + b, 0)
             subtitle = `${cycles.length} Durchgänge`
           }
@@ -774,7 +710,7 @@ export function useStatWidgetData(widget: WidgetInstance) {
         }
 
         case 'best_fcr_all_cycles': {
-          // MULTI-CYCLE OVERVIEW: Find best (lowest) FCR across all cycles
+          // OPTIMIZED: Use bulk loading helper instead of N+1 queries
           const { data: cycles } = await supabase
             .from('livestock_counts')
             .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
@@ -782,27 +718,8 @@ export function useStatWidgetData(widget: WidgetInstance) {
             .not('end_date', 'is', null)
 
           if (cycles && cycles.length > 0) {
-            const fcrPromises = cycles.map(async (cycle) => {
-              const { consumption } = await loadConsumptionWithCosts(
-                supabase,
-                currentFarmId,
-                cycle.start_date,
-                cycle.end_date
-              )
-              const { data: costTransactions } = await supabase
-                .from('cost_transactions')
-                .select('amount')
-                .eq('livestock_count_id', cycle.id)
-
-              const metrics = calculateCycleMetrics(
-                cycle as any,
-                consumption as any,
-                (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
-              )
-              return metrics.feedConversionRatio
-            })
-
-            const fcrs = await Promise.all(fcrPromises)
+            const cycleMetrics = await loadCycleMetricsBulk(supabase, currentFarmId, cycles)
+            const fcrs = cycleMetrics.map(cm => cm.metrics.feedConversionRatio)
             const validFcrs = fcrs.filter(fcr => fcr > 0 && isFinite(fcr))
             if (validFcrs.length > 0) {
               value = Math.min(...validFcrs)
@@ -935,6 +852,7 @@ export function useTableWidgetData(widget: WidgetInstance) {
         setData(suppliers || [])
       } else if (dataSource === 'cycles') {
         // Load livestock cycles with calculated feed costs
+        // OPTIMIZED: Load consumption and cost transactions ONCE instead of N queries
         const { data: cycles, error: cyclesError } = await supabase
           .from('livestock_counts')
           .select('*, livestock_count_details(count, area_id, area_group_id)')
@@ -944,28 +862,41 @@ export function useTableWidgetData(widget: WidgetInstance) {
 
         if (cyclesError) throw cyclesError
 
-        // Use centralized KPI calculations for each cycle
-        const cyclesWithCosts = await Promise.all(
-          (cycles || []).map(async (cycle) => {
-            // Load consumption for this cycle's date range
-            const { consumption } = await loadConsumptionWithCosts(
-              supabase,
-              currentFarmId,
-              cycle.start_date,
-              cycle.end_date
+        if (cycles && cycles.length > 0) {
+          // Find overall date range across all cycles
+          const startDates = cycles.map(c => c.start_date).filter(Boolean)
+          const endDates = cycles.map(c => c.end_date).filter(Boolean)
+          const minDate = startDates.length > 0 ? startDates.reduce((a, b) => a < b ? a : b) : new Date().toISOString().split('T')[0]
+          const maxDate = endDates.length > 0 ? endDates.reduce((a, b) => a > b ? a : b) : new Date().toISOString().split('T')[0]
+
+          // Load ALL consumption data ONCE
+          const { consumption: allConsumption } = await loadConsumptionWithCosts(
+            supabase,
+            currentFarmId,
+            minDate,
+            maxDate
+          )
+
+          // Load ALL cost transactions for these cycles in one query
+          const cycleIds = cycles.map(c => c.id)
+          const { data: allCostTransactions } = await supabase
+            .from('cost_transactions')
+            .select('amount, livestock_count_id')
+            .in('livestock_count_id', cycleIds)
+
+          // Process each cycle using pre-loaded data (fast, in-memory)
+          const cyclesWithCosts = cycles.map(cycle => {
+            const cycleConsumption = allConsumption.filter(
+              item => item.date >= cycle.start_date &&
+                      (!cycle.end_date || item.date <= cycle.end_date)
             )
+            const cycleCostTransactions = (allCostTransactions || [])
+              .filter(ct => ct.livestock_count_id === cycle.id)
 
-            // Fetch all cost transactions for this cycle
-            const { data: costTransactions } = await supabase
-              .from('cost_transactions')
-              .select('amount')
-              .eq('livestock_count_id', cycle.id)
-
-            // Use centralized calculation
             const metrics = calculateCycleMetrics(
               cycle as any,
-              consumption as any,
-              (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
+              cycleConsumption as any,
+              cycleCostTransactions.map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
             )
 
             return {
@@ -978,11 +909,14 @@ export function useTableWidgetData(widget: WidgetInstance) {
               profit_loss: metrics.profitLoss,
             }
           })
-        )
 
-        setData(cyclesWithCosts)
+          setData(cyclesWithCosts)
+        } else {
+          setData([])
+        }
       } else if (dataSource === 'cycleAreas') {
         // HIERARCHICAL: Load all completed cycles with expandable area performance
+        // OPTIMIZED: Load consumption and cost transactions ONCE instead of N queries
         const { data: cycles } = await supabase
           .from('livestock_counts')
           .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date, areas(id, name), area_groups(id, name))')
@@ -992,82 +926,96 @@ export function useTableWidgetData(widget: WidgetInstance) {
           .limit(config.pageSize || 10)
 
         if (cycles && cycles.length > 0) {
-          const hierarchicalData = await Promise.all(
-            cycles.map(async (cycle) => {
-              // Load consumption and costs for this cycle
-              const { consumption } = await loadConsumptionWithCosts(
-                supabase,
-                currentFarmId,
-                cycle.start_date,
-                cycle.end_date
-              )
+          // Find overall date range across all cycles
+          const startDates = cycles.map(c => c.start_date).filter(Boolean)
+          const endDates = cycles.map(c => c.end_date).filter(Boolean)
+          const minDate = startDates.length > 0 ? startDates.reduce((a, b) => a < b ? a : b) : new Date().toISOString().split('T')[0]
+          const maxDate = endDates.length > 0 ? endDates.reduce((a, b) => a > b ? a : b) : new Date().toISOString().split('T')[0]
 
-              const { data: costTransactions } = await supabase
-                .from('cost_transactions')
-                .select('amount')
-                .eq('livestock_count_id', cycle.id)
-
-              // Calculate area metrics for this cycle
-              const areaMetrics = calculateAreaMetrics(
-                cycle as any,
-                consumption as any,
-                (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
-              )
-
-              // Calculate cycle-level aggregates
-              const totalFeedCost = areaMetrics.reduce((sum, a) => sum + a.totalFeedCost, 0)
-              const totalAnimals = areaMetrics.reduce((sum, a) => sum + a.animalCount, 0)
-
-              // Calculate cycle start/end from area details (earliest start, latest end)
-              const detailsWithAnimals = cycle.livestock_count_details.filter((d: any) => d.count > 0)
-              const areaStartDates = detailsWithAnimals.map((d: any) => d.start_date)
-              const areaEndDates = detailsWithAnimals.filter((d: any) => d.end_date).map((d: any) => d.end_date)
-
-              const cycleStartDate = areaStartDates.length > 0
-                ? areaStartDates.reduce((min: string, date: string) => date < min ? date : min)
-                : cycle.start_date
-              const cycleEndDate = areaEndDates.length > 0
-                ? areaEndDates.reduce((max: string, date: string) => date > max ? date : max)
-                : cycle.end_date
-
-              return {
-                // Cycle-level row
-                id: cycle.id,
-                cycleName: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
-                startDate: cycleStartDate,
-                endDate: cycleEndDate,
-                animalCount: totalAnimals,
-                feedCost: totalFeedCost,
-                feedCostPerAnimal: totalAnimals > 0 ? totalFeedCost / totalAnimals : 0,
-                areaCount: areaMetrics.length,
-                isParent: true,
-                level: 0,
-
-                // Area-level rows (children)
-                children: areaMetrics.map(area => {
-                  // Find the specific detail for this area
-                  const detail = cycle.livestock_count_details.find((d: any) =>
-                    (d.area_id === area.areaId || d.area_group_id === area.areaId) && d.count > 0
-                  )
-
-                  return {
-                    id: `${cycle.id}-${area.areaId}`,
-                    cycleId: cycle.id,
-                    areaName: area.areaName,
-                    startDate: detail?.start_date || cycleStartDate,
-                    endDate: detail?.end_date || cycleEndDate,
-                    animalCount: area.animalCount,
-                    feedCost: area.totalFeedCost,
-                    feedCostPerAnimal: area.feedCostPerAnimal,
-                    percentageOfTotal: area.percentageOfTotal,
-                    isChild: true,
-                    level: 1,
-                    parentId: cycle.id,
-                  }
-                })
-              }
-            })
+          // Load ALL consumption data ONCE
+          const { consumption: allConsumption } = await loadConsumptionWithCosts(
+            supabase,
+            currentFarmId,
+            minDate,
+            maxDate
           )
+
+          // Load ALL cost transactions for these cycles in one query
+          const cycleIds = cycles.map(c => c.id)
+          const { data: allCostTransactions } = await supabase
+            .from('cost_transactions')
+            .select('amount, livestock_count_id')
+            .in('livestock_count_id', cycleIds)
+
+          // Process each cycle using pre-loaded data (fast, in-memory)
+          const hierarchicalData = cycles.map(cycle => {
+            const cycleConsumption = allConsumption.filter(
+              item => item.date >= cycle.start_date &&
+                      (!cycle.end_date || item.date <= cycle.end_date)
+            )
+            const cycleCostTransactions = (allCostTransactions || [])
+              .filter(ct => ct.livestock_count_id === cycle.id)
+
+            // Calculate area metrics for this cycle
+            const areaMetrics = calculateAreaMetrics(
+              cycle as any,
+              cycleConsumption as any,
+              cycleCostTransactions.map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
+            )
+
+            // Calculate cycle-level aggregates
+            const totalFeedCost = areaMetrics.reduce((sum, a) => sum + a.totalFeedCost, 0)
+            const totalAnimals = areaMetrics.reduce((sum, a) => sum + a.animalCount, 0)
+
+            // Calculate cycle start/end from area details (earliest start, latest end)
+            const detailsWithAnimals = cycle.livestock_count_details.filter((d: any) => d.count > 0)
+            const areaStartDates = detailsWithAnimals.map((d: any) => d.start_date)
+            const areaEndDates = detailsWithAnimals.filter((d: any) => d.end_date).map((d: any) => d.end_date)
+
+            const cycleStartDate = areaStartDates.length > 0
+              ? areaStartDates.reduce((min: string, date: string) => date < min ? date : min)
+              : cycle.start_date
+            const cycleEndDate = areaEndDates.length > 0
+              ? areaEndDates.reduce((max: string, date: string) => date > max ? date : max)
+              : cycle.end_date
+
+            return {
+              // Cycle-level row
+              id: cycle.id,
+              cycleName: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
+              startDate: cycleStartDate,
+              endDate: cycleEndDate,
+              animalCount: totalAnimals,
+              feedCost: totalFeedCost,
+              feedCostPerAnimal: totalAnimals > 0 ? totalFeedCost / totalAnimals : 0,
+              areaCount: areaMetrics.length,
+              isParent: true,
+              level: 0,
+
+              // Area-level rows (children)
+              children: areaMetrics.map(area => {
+                // Find the specific detail for this area
+                const detail = cycle.livestock_count_details.find((d: any) =>
+                  (d.area_id === area.areaId || d.area_group_id === area.areaId) && d.count > 0
+                )
+
+                return {
+                  id: `${cycle.id}-${area.areaId}`,
+                  cycleId: cycle.id,
+                  areaName: area.areaName,
+                  startDate: detail?.start_date || cycleStartDate,
+                  endDate: detail?.end_date || cycleEndDate,
+                  animalCount: area.animalCount,
+                  feedCost: area.totalFeedCost,
+                  feedCostPerAnimal: area.feedCostPerAnimal,
+                  percentageOfTotal: area.percentageOfTotal,
+                  isChild: true,
+                  level: 1,
+                  parentId: cycle.id,
+                }
+              })
+            }
+          })
 
           setData(hierarchicalData)
         }
@@ -1100,6 +1048,7 @@ export function useTableWidgetData(widget: WidgetInstance) {
         }
       } else if (dataSource === 'cycleComparison') {
         // CYCLE-SPECIFIC: Load comparison data for all completed cycles (ignore global date range)
+        // OPTIMIZED: Load consumption ONCE for all cycles instead of N queries
         const { data: cycles } = await supabase
           .from('livestock_counts')
           .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
@@ -1109,46 +1058,64 @@ export function useTableWidgetData(widget: WidgetInstance) {
           .limit(config.pageSize || 10)
 
         if (cycles && cycles.length > 0) {
-          const comparisonData = await Promise.all(
-            cycles.map(async (cycle) => {
-              const { consumption } = await loadConsumptionWithCosts(
-                supabase,
-                currentFarmId,
-                cycle.start_date,
-                cycle.end_date
-              )
+          // Find overall date range (min start_date to max end_date) across all cycles
+          const startDates = cycles.map(c => c.start_date).filter(Boolean)
+          const endDates = cycles.map(c => c.end_date).filter(Boolean)
+          const minDate = startDates.reduce((a, b) => a < b ? a : b)
+          const maxDate = endDates.reduce((a, b) => a > b ? a : b)
 
-              const { data: costTransactions } = await supabase
-                .from('cost_transactions')
-                .select('amount')
-                .eq('livestock_count_id', cycle.id)
-
-              const metrics = calculateCycleMetrics(
-                cycle as any,
-                consumption as any,
-                (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
-              )
-
-              return {
-                cycleId: cycle.id,
-                cycleName: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
-                startDate: cycle.start_date,
-                endDate: cycle.end_date,
-                status: cycle.end_date ? 'completed' : 'active',
-                duration: metrics.cycleDuration,
-                totalAnimals: metrics.totalAnimals,
-                totalFeedQuantity: metrics.totalFeedQuantity,
-                totalFeedCost: metrics.totalFeedCost,
-                animalPurchaseCost: metrics.animalPurchaseCost,
-                additionalCosts: metrics.additionalCosts,
-                revenue: metrics.totalRevenue,
-                profitLoss: metrics.profitLoss,
-                fcr: metrics.feedConversionRatio,
-                feedCostPerAnimal: metrics.feedCostPerAnimal,
-                profitMargin: metrics.profitMargin,
-              }
-            })
+          // Load ALL consumption data ONCE for the entire range (instead of N queries)
+          const { consumption: allConsumption } = await loadConsumptionWithCosts(
+            supabase,
+            currentFarmId,
+            minDate,
+            maxDate
           )
+
+          // Load ALL cost transactions for these cycles in one query (instead of N queries)
+          const cycleIds = cycles.map(c => c.id)
+          const { data: allCostTransactions } = await supabase
+            .from('cost_transactions')
+            .select('amount, livestock_count_id')
+            .in('livestock_count_id', cycleIds)
+
+          // Process each cycle using the pre-loaded data (fast, in-memory filtering)
+          const comparisonData = cycles.map(cycle => {
+            // Filter consumption for this cycle's date range
+            const cycleConsumption = allConsumption.filter(
+              item => item.date >= cycle.start_date &&
+                      (!cycle.end_date || item.date <= cycle.end_date)
+            )
+
+            // Filter cost transactions for this cycle
+            const cycleCostTransactions = (allCostTransactions || [])
+              .filter(ct => ct.livestock_count_id === cycle.id)
+
+            const metrics = calculateCycleMetrics(
+              cycle as any,
+              cycleConsumption as any,
+              cycleCostTransactions.map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
+            )
+
+            return {
+              cycleId: cycle.id,
+              cycleName: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
+              startDate: cycle.start_date,
+              endDate: cycle.end_date,
+              status: cycle.end_date ? 'completed' : 'active',
+              duration: metrics.cycleDuration,
+              totalAnimals: metrics.totalAnimals,
+              totalFeedQuantity: metrics.totalFeedQuantity,
+              totalFeedCost: metrics.totalFeedCost,
+              animalPurchaseCost: metrics.animalPurchaseCost,
+              additionalCosts: metrics.additionalCosts,
+              revenue: metrics.totalRevenue,
+              profitLoss: metrics.profitLoss,
+              fcr: metrics.feedConversionRatio,
+              feedCostPerAnimal: metrics.feedCostPerAnimal,
+              profitMargin: metrics.profitMargin,
+            }
+          })
 
           setData(comparisonData)
         }
@@ -1222,6 +1189,7 @@ export function useCycleChartWidgetData(widget: WidgetInstance) {
     const supabase = createClient()
 
     try {
+      // OPTIMIZED: Load consumption and cost transactions ONCE instead of N queries
       const { data: cycles, error: cyclesError } = await supabase
         .from('livestock_counts')
         .select('*, livestock_count_details(count, area_id, area_group_id)')
@@ -1231,28 +1199,43 @@ export function useCycleChartWidgetData(widget: WidgetInstance) {
 
       if (cyclesError) throw cyclesError
 
-      // Use centralized KPI calculations for each cycle
-      const cyclesWithCosts = await Promise.all(
-        (cycles || []).map(async (cycle) => {
-          // Load consumption for this cycle's date range
-          const { consumption } = await loadConsumptionWithCosts(
-            supabase,
-            currentFarmId,
-            cycle.start_date,
-            cycle.end_date
+      let cyclesWithCosts: any[] = []
+
+      if (cycles && cycles.length > 0) {
+        // Find overall date range across all cycles
+        const startDates = cycles.map(c => c.start_date).filter(Boolean)
+        const endDates = cycles.map(c => c.end_date).filter(Boolean)
+        const minDate = startDates.length > 0 ? startDates.reduce((a, b) => a < b ? a : b) : new Date().toISOString().split('T')[0]
+        const maxDate = endDates.length > 0 ? endDates.reduce((a, b) => a > b ? a : b) : new Date().toISOString().split('T')[0]
+
+        // Load ALL consumption data ONCE
+        const { consumption: allConsumption } = await loadConsumptionWithCosts(
+          supabase,
+          currentFarmId,
+          minDate,
+          maxDate
+        )
+
+        // Load ALL cost transactions for these cycles in one query
+        const cycleIds = cycles.map(c => c.id)
+        const { data: allCostTransactions } = await supabase
+          .from('cost_transactions')
+          .select('amount, livestock_count_id')
+          .in('livestock_count_id', cycleIds)
+
+        // Process each cycle using pre-loaded data (fast, in-memory)
+        cyclesWithCosts = cycles.map(cycle => {
+          const cycleConsumption = allConsumption.filter(
+            item => item.date >= cycle.start_date &&
+                    (!cycle.end_date || item.date <= cycle.end_date)
           )
+          const cycleCostTransactions = (allCostTransactions || [])
+            .filter(ct => ct.livestock_count_id === cycle.id)
 
-          // Fetch all cost transactions for this cycle
-          const { data: costTransactions } = await supabase
-            .from('cost_transactions')
-            .select('amount')
-            .eq('livestock_count_id', cycle.id)
-
-          // Use centralized calculation
           const metrics = calculateCycleMetrics(
             cycle as any,
-            consumption as any,
-            (costTransactions || []).map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
+            cycleConsumption as any,
+            cycleCostTransactions.map(ct => ({ ...ct, transaction_date: '', cost_types: undefined }))
           )
 
           return {
@@ -1263,7 +1246,7 @@ export function useCycleChartWidgetData(widget: WidgetInstance) {
             total_animals: metrics.totalAnimals,
           }
         })
-      )
+      }
 
       // Format data based on chart type
       const chartType = config.cycleChartType || 'profitLoss'
@@ -1874,10 +1857,10 @@ export function useHeatmapWidgetData(widget: WidgetInstance) {
 
       const supabase = createClient()
 
-      // Load all livestock cycles for this farm
+      // OPTIMIZED: Load all data ONCE instead of sequential queries per cycle
       const { data: cycles, error: cyclesError } = await supabase
         .from('livestock_counts')
-        .select('*')
+        .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
         .eq('farm_id', currentFarmId)
         .order('start_date', { ascending: true })
 
@@ -1886,75 +1869,112 @@ export function useHeatmapWidgetData(widget: WidgetInstance) {
       // Calculate metrics for each cycle by area
       const cells: any[] = []
 
-      for (const cycle of cycles || []) {
-        try {
-          const metrics = await calculateCycleMetrics(cycle.id, currentFarmId)
-          const areaMetrics = await calculateAreaMetrics(cycle.id, currentFarmId)
+      if (cycles && cycles.length > 0) {
+        // Load all cycle metrics in bulk (single query for consumption + cost transactions)
+        const cycleMetricsResult = await loadCycleMetricsBulk(supabase, currentFarmId, cycles)
 
-          // Add cycle-level cell
-          const cycleName = cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`
+        // Find overall date range for area metrics calculation
+        const startDates = cycles.map(c => c.start_date).filter(Boolean)
+        const endDates = cycles.map(c => c.end_date).filter(Boolean)
+        const minDate = startDates.length > 0 ? startDates.reduce((a, b) => a < b ? a : b) : new Date().toISOString().split('T')[0]
+        const maxDate = endDates.length > 0 ? endDates.reduce((a, b) => a > b ? a : b) : new Date().toISOString().split('T')[0]
 
-          if (config.yAxis === 'area') {
-            // Create a cell for each area
-            for (const [areaId, areaData] of Object.entries(areaMetrics)) {
-              const area = areaData as any
+        // Load consumption once for area metrics
+        const { consumption: allConsumption } = await loadConsumptionWithCosts(
+          supabase,
+          currentFarmId,
+          minDate,
+          maxDate
+        )
+
+        // Load all cost transactions once
+        const cycleIds = cycles.map(c => c.id)
+        const { data: allCostTransactions } = await supabase
+          .from('cost_transactions')
+          .select('amount, livestock_count_id')
+          .in('livestock_count_id', cycleIds)
+
+        for (const { cycle, metrics } of cycleMetricsResult) {
+          try {
+            const cycleName = cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`
+
+            if (config.yAxis === 'area') {
+              // Filter consumption for this cycle
+              const cycleConsumption = allConsumption.filter(
+                (item: any) => item.date >= cycle.start_date &&
+                        (!cycle.end_date || item.date <= cycle.end_date)
+              )
+              const cycleCostTransactions = (allCostTransactions || [])
+                .filter((ct: any) => ct.livestock_count_id === cycle.id)
+                .map((ct: any) => ({ ...ct, transaction_date: '', cost_types: undefined }))
+
+              // Calculate area metrics for this cycle
+              const areaMetricsArray = calculateAreaMetrics(
+                cycle as any,
+                cycleConsumption as any,
+                cycleCostTransactions
+              )
+
+              // Create a cell for each area
+              for (const area of areaMetricsArray) {
+                let value: number | null = null
+
+                switch (config.metric) {
+                  case 'fcr':
+                    value = area.feedConversionRatio || null
+                    break
+                  case 'profit':
+                    value = area.profitLoss || null
+                    break
+                  case 'cost':
+                    value = area.totalFeedCost
+                    break
+                  case 'feed_efficiency':
+                    value = area.feedConversionRatio ? 1 / area.feedConversionRatio : null
+                    break
+                  case 'mortality_rate':
+                    value = area.mortalityRate || null
+                    break
+                }
+
+                cells.push({
+                  x: cycleName,
+                  y: area.areaName || 'Unbekannt',
+                  value,
+                })
+              }
+            } else {
+              // Single cell per cycle (aggregate)
               let value: number | null = null
 
               switch (config.metric) {
                 case 'fcr':
-                  value = area.feedConversionRatio
+                  value = metrics.feedConversionRatio
                   break
                 case 'profit':
-                  value = area.profitLoss
+                  value = metrics.profitLoss
                   break
                 case 'cost':
-                  value = area.totalFeedCost
+                  value = metrics.totalFeedCost
                   break
                 case 'feed_efficiency':
-                  value = area.feedConversionRatio ? 1 / area.feedConversionRatio : null
+                  value = metrics.feedConversionRatio ? 1 / metrics.feedConversionRatio : null
                   break
                 case 'mortality_rate':
-                  value = area.mortalityRate
+                  value = metrics.mortalityRate
                   break
               }
 
               cells.push({
                 x: cycleName,
-                y: area.areaName || 'Unbekannt',
+                y: 'Gesamt',
                 value,
               })
             }
-          } else {
-            // Single cell per cycle (aggregate)
-            let value: number | null = null
-
-            switch (config.metric) {
-              case 'fcr':
-                value = metrics.feedConversionRatio
-                break
-              case 'profit':
-                value = metrics.profitLoss
-                break
-              case 'cost':
-                value = metrics.totalFeedCost
-                break
-              case 'feed_efficiency':
-                value = metrics.feedConversionRatio ? 1 / metrics.feedConversionRatio : null
-                break
-              case 'mortality_rate':
-                value = metrics.mortalityRate
-                break
-            }
-
-            cells.push({
-              x: cycleName,
-              y: 'Gesamt',
-              value,
-            })
+          } catch (cycleErr) {
+            console.warn(`Error calculating metrics for cycle ${cycle.id}:`, cycleErr)
+            // Continue with next cycle
           }
-        } catch (cycleErr) {
-          console.warn(`Error calculating metrics for cycle ${cycle.id}:`, cycleErr)
-          // Continue with next cycle
         }
       }
 
@@ -2123,10 +2143,10 @@ export function useScatterWidgetData(widget: WidgetInstance) {
     try {
       const supabase = createClient()
 
-      // Load all completed cycles
+      // OPTIMIZED: Load all data ONCE instead of sequential queries per cycle
       const { data: cycles, error: cyclesError } = await supabase
         .from('livestock_counts')
-        .select('*')
+        .select('*, livestock_count_details(count, area_id, area_group_id, start_date, end_date)')
         .eq('farm_id', currentFarmId)
         .not('end_date', 'is', null)
         .order('start_date', { ascending: false })
@@ -2136,47 +2156,50 @@ export function useScatterWidgetData(widget: WidgetInstance) {
       // Calculate metrics for each cycle
       const points: any[] = []
 
-      for (const cycle of cycles || []) {
-        const metrics = await calculateCycleMetrics(cycle.id, currentFarmId)
+      if (cycles && cycles.length > 0) {
+        // Load all cycle metrics in bulk (single query for consumption + cost transactions)
+        const cycleMetricsResult = await loadCycleMetricsBulk(supabase, currentFarmId, cycles)
 
-        const point: any = {
-          label: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
-        }
-
-        // Map x and y values based on config
-        const xField = config.xAxis.field
-        const yField = config.yAxis.field
-
-        // X-axis
-        if (xField === 'fcr') point.x = metrics.feedConversionRatio
-        else if (xField === 'duration') point.x = metrics.duration
-        else if (xField.includes('cost')) point.x = metrics.totalFeedCost
-        else if (xField.includes('profit')) point.x = metrics.profitLoss
-        else if (xField.includes('animals')) point.x = metrics.totalAnimals
-
-        // Y-axis
-        if (yField === 'profit' || yField.includes('profit')) point.y = metrics.profitLoss
-        else if (yField === 'fcr') point.y = metrics.feedConversionRatio
-        else if (yField.includes('margin')) point.y = metrics.profitMargin
-        else if (yField.includes('cost')) point.y = metrics.totalFeedCost
-        else if (yField === 'duration') point.y = metrics.duration
-
-        // Size based on optional field
-        if (config.pointSize?.field) {
-          if (config.pointSize.field === 'animals') {
-            point.size = metrics.totalAnimals
-          } else if (config.pointSize.field === 'revenue') {
-            point.size = metrics.revenue
+        for (const { cycle, metrics } of cycleMetricsResult) {
+          const point: any = {
+            label: cycle.durchgang_name || `Durchgang ${cycle.id.slice(0, 8)}`,
           }
-        }
 
-        // Grouping
-        if (config.groupBy === 'profitability') {
-          if (metrics.profitLoss > 0) point.group = 'Profitabel'
-          else point.group = 'Verlust'
-        }
+          // Map x and y values based on config
+          const xField = config.xAxis.field
+          const yField = config.yAxis.field
 
-        points.push(point)
+          // X-axis
+          if (xField === 'fcr') point.x = metrics.feedConversionRatio
+          else if (xField === 'duration') point.x = metrics.cycleDuration
+          else if (xField.includes('cost')) point.x = metrics.totalFeedCost
+          else if (xField.includes('profit')) point.x = metrics.profitLoss
+          else if (xField.includes('animals')) point.x = metrics.totalAnimals
+
+          // Y-axis
+          if (yField === 'profit' || yField.includes('profit')) point.y = metrics.profitLoss
+          else if (yField === 'fcr') point.y = metrics.feedConversionRatio
+          else if (yField.includes('margin')) point.y = metrics.profitMargin
+          else if (yField.includes('cost')) point.y = metrics.totalFeedCost
+          else if (yField === 'duration') point.y = metrics.cycleDuration
+
+          // Size based on optional field
+          if (config.pointSize?.field) {
+            if (config.pointSize.field === 'animals') {
+              point.size = metrics.totalAnimals
+            } else if (config.pointSize.field === 'revenue') {
+              point.size = metrics.totalRevenue
+            }
+          }
+
+          // Grouping
+          if (config.groupBy === 'profitability') {
+            if (metrics.profitLoss > 0) point.group = 'Profitabel'
+            else point.group = 'Verlust'
+          }
+
+          points.push(point)
+        }
       }
 
       // Calculate correlation if applicable
