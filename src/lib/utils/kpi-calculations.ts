@@ -416,7 +416,62 @@ export function calculateCycleMetrics(
     cycle.end_date
   )
 
-  // Weight calculations - use detail-level values with fallback
+  // ============================================================================
+  // SEQUENTIAL DETAILS DETECTION
+  // Detect if details have sequential (non-overlapping) date ranges, which indicates
+  // animals moving between areas (e.g., Kälberstall → Fresserstall). This affects:
+  // - Buy/sell price calculations (only count once, not per detail)
+  // - Weight-based metrics (use totalAnimals, not sum of all details)
+  // ============================================================================
+  const hasStartGroupFlags = cycle.livestock_count_details.some(d => d.is_start_group === true)
+  const hasEndGroupFlags = cycle.livestock_count_details.some(d => d.is_end_group === true)
+
+  let isSequentialDetails = false
+  let firstDetailId: string | null = null
+  let lastDetailId: string | null = null
+
+  if (!hasStartGroupFlags || !hasEndGroupFlags) {
+    const detailsWithDates = cycle.livestock_count_details
+      .filter(d => d.start_date)
+      .sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
+
+    if (detailsWithDates.length > 1) {
+      // Check if details are sequential (non-overlapping)
+      // Sequential means: detail[i].end_date < detail[i+1].start_date (with small gap tolerance)
+      let sequential = true
+      for (let i = 0; i < detailsWithDates.length - 1; i++) {
+        const currentEnd = detailsWithDates[i].end_date
+        const nextStart = detailsWithDates[i + 1].start_date
+
+        if (currentEnd && nextStart) {
+          const endDate = new Date(currentEnd)
+          const startDate = new Date(nextStart)
+          // Allow up to 7 days gap between periods (for flexibility)
+          const daysDiff = (startDate.getTime() - endDate.getTime()) / (1000 * 60 * 60 * 24)
+
+          if (daysDiff < 0 || daysDiff > 7) {
+            // Overlapping or too large gap - not sequential
+            sequential = false
+            break
+          }
+        } else {
+          // Missing dates - can't determine sequence
+          sequential = false
+          break
+        }
+      }
+
+      if (sequential) {
+        isSequentialDetails = true
+        firstDetailId = detailsWithDates[0].id || null
+        lastDetailId = detailsWithDates[detailsWithDates.length - 1].id || null
+      }
+    }
+  }
+
+  // ============================================================================
+  // WEIGHT CALCULATIONS
+  // ============================================================================
   // Calculate weighted average weight gain based on animal counts in each detail
   let totalWeightedStartWeight = 0
   let totalWeightedEndWeight = 0
@@ -441,6 +496,11 @@ export function calculateCycleMetrics(
     ? totalWeightedEndWeight / totalAnimalsWithWeights
     : (cycle.actual_weight_per_animal || 0)
   const weightGain = endWeight - startWeight
+
+  // For weight-based metrics (FCR, feedCostPerKg, etc.), use the correct animal count:
+  // - If sequential details: use totalAnimals (max at any time) since it's the same animals moving
+  // - Otherwise: use totalAnimalsWithWeights (for independent groups with weight data)
+  const animalsForWeightMetrics = isSequentialDetails ? totalAnimals : totalAnimalsWithWeights
 
   // Filter consumption to only include items from areas/groups during their active timeframes
   const filteredConsumption = filterConsumptionByTimeframe(
@@ -472,29 +532,28 @@ export function calculateCycleMetrics(
   // Additional costs = only non-feed cost transactions
   const additionalCosts = otherCostTransactions.reduce((sum, transaction) => sum + transaction.amount, 0)
 
-  // Calculate animal purchase cost and revenue using detail-level prices
-  // IMPORTANT: Only count buy_price for start groups (is_start_group = true)
-  // and sell_price for end groups (is_end_group = true) to avoid double-counting
-  // when animals move between areas (e.g., Kälberstall → Fresserstall)
-  //
-  // FALLBACK for legacy data: If no details have is_start_group/is_end_group set,
-  // use the old behavior (count all details with prices)
+  // ============================================================================
+  // BUY/SELL PRICE CALCULATIONS
+  // ============================================================================
+  // Uses sequential detection from above to avoid double-counting when animals
+  // move between areas (e.g., Kälberstall → Fresserstall)
   let animalPurchaseCost = 0
   let animalSalesRevenue = 0
-
-  // Check if any details have start/end group flags set
-  const hasStartGroupFlags = cycle.livestock_count_details.some(d => d.is_start_group === true)
-  const hasEndGroupFlags = cycle.livestock_count_details.some(d => d.is_end_group === true)
 
   cycle.livestock_count_details.forEach(detail => {
     const buyPrice = getDetailBuyPrice(detail, cycle)
     const sellPrice = getDetailSellPrice(detail, cycle)
 
-    // Purchase cost: only count for start groups, or all if no flags set (legacy)
+    // Purchase cost: only count for start groups, or smart fallback
     if (buyPrice !== null) {
       if (hasStartGroupFlags) {
-        // New behavior: only count start groups
+        // Explicit flags: only count start groups
         if (detail.is_start_group === true) {
+          animalPurchaseCost += detail.count * buyPrice
+        }
+      } else if (isSequentialDetails && firstDetailId !== null) {
+        // Smart fallback: sequential details detected, only count first
+        if (detail.id === firstDetailId) {
           animalPurchaseCost += detail.count * buyPrice
         }
       } else {
@@ -503,11 +562,16 @@ export function calculateCycleMetrics(
       }
     }
 
-    // Sales revenue: only count for end groups, or all if no flags set (legacy)
+    // Sales revenue: only count for end groups, or smart fallback
     if (sellPrice !== null) {
       if (hasEndGroupFlags) {
-        // New behavior: only count end groups
+        // Explicit flags: only count end groups
         if (detail.is_end_group === true) {
+          animalSalesRevenue += detail.count * sellPrice
+        }
+      } else if (isSequentialDetails && lastDetailId !== null) {
+        // Smart fallback: sequential details detected, only count last
+        if (detail.id === lastDetailId) {
           animalSalesRevenue += detail.count * sellPrice
         }
       } else {
@@ -534,18 +598,19 @@ export function calculateCycleMetrics(
   const profitMargin = totalRevenue > 0 ? (profitLoss / totalRevenue) * 100 : 0
 
   // Performance metrics
-  // Note: Use totalAnimalsWithWeights (animals with complete weight data) for weight-based calculations
-  // This ensures we only calculate ratios for animals where we can measure weight gain
-  const feedConversionRatio = weightGain > 0 && totalAnimalsWithWeights > 0
-    ? totalFeedQuantity / (totalAnimalsWithWeights * weightGain)
+  // Note: Use animalsForWeightMetrics for weight-based calculations
+  // - For sequential details (animals moving between areas): uses totalAnimals
+  // - For independent groups: uses totalAnimalsWithWeights (only animals with weight data)
+  const feedConversionRatio = weightGain > 0 && animalsForWeightMetrics > 0
+    ? totalFeedQuantity / (animalsForWeightMetrics * weightGain)
     : 0
   const feedCostPerAnimal = totalAnimals > 0 ? totalFeedCost / totalAnimals : 0
-  const feedCostPerKg = weightGain > 0 && totalAnimalsWithWeights > 0
-    ? totalFeedCost / (totalAnimalsWithWeights * weightGain)
+  const feedCostPerKg = weightGain > 0 && animalsForWeightMetrics > 0
+    ? totalFeedCost / (animalsForWeightMetrics * weightGain)
     : 0
   const dailyFeedCost = cycleDuration > 0 ? totalFeedCost / cycleDuration : 0
-  const feedEfficiency = totalFeedCost > 0 && totalAnimalsWithWeights > 0
-    ? (totalAnimalsWithWeights * weightGain) / totalFeedCost
+  const feedEfficiency = totalFeedCost > 0 && animalsForWeightMetrics > 0
+    ? (animalsForWeightMetrics * weightGain) / totalFeedCost
     : 0
 
   // Daily gain calculations
