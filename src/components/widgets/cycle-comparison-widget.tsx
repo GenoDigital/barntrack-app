@@ -52,6 +52,10 @@ interface CycleComparisonData {
   // Feed cost breakdown
   consumptionFeedCostPerAnimal: number
   feedCategoryTransactionCostPerAnimal: number
+  // Additional income (Prämien, Boni, Zuschüsse)
+  additionalIncomePerAnimal: number
+  // Other costs (non-feed)
+  additionalCostsPerAnimal: number
   profitPerAnimal: number
   status: 'active' | 'completed'
 }
@@ -241,6 +245,12 @@ export function CycleComparisonWidget({
           feedCategoryTransactionCostPerAnimal: metrics.totalAnimals > 0
             ? metrics.feedCategoryTransactionCosts / metrics.totalAnimals
             : 0,
+          additionalIncomePerAnimal: metrics.totalAnimals > 0
+            ? metrics.additionalIncome / metrics.totalAnimals
+            : 0,
+          additionalCostsPerAnimal: metrics.totalAnimals > 0
+            ? metrics.additionalCosts / metrics.totalAnimals
+            : 0,
           profitPerAnimal,
           status: cycle.end_date ? 'completed' : 'active',
         }
@@ -307,6 +317,7 @@ export function CycleComparisonWidget({
               <TableHead className="whitespace-nowrap text-right">g/Tag</TableHead>
               <TableHead className="whitespace-nowrap text-right">Futter/Tier</TableHead>
               <TableHead className="whitespace-nowrap text-right">Futter/Tag</TableHead>
+              <TableHead className="whitespace-nowrap text-right">Prämien/Tier</TableHead>
               <TableHead className="whitespace-nowrap text-right">Gewinn/Tier</TableHead>
             </TableRow>
           </TableHeader>
@@ -363,25 +374,68 @@ export function CycleComparisonWidget({
                     )}
                   </TableCell>
                   <TableCell className="text-right">{formatCurrency(cycle.dailyFeedCostPerAnimal)}</TableCell>
+                  <TableCell className={cn(
+                    'text-right',
+                    cycle.additionalIncomePerAnimal > 0 && 'text-green-600'
+                  )}>
+                    {cycle.additionalIncomePerAnimal > 0
+                      ? formatCurrency(cycle.additionalIncomePerAnimal)
+                      : '-'
+                    }
+                  </TableCell>
                   <TableCell className="text-right">
-                    <div className={cn(
-                      'flex items-center justify-end gap-1',
-                      cycle.profitPerAnimal > 0 && 'text-green-600',
-                      cycle.profitPerAnimal < 0 && 'text-red-600'
-                    )}>
-                      {cycle.profitPerAnimal > 0 ? (
-                        <TrendingUp className="h-3 w-3" />
-                      ) : cycle.profitPerAnimal < 0 ? (
-                        <TrendingDown className="h-3 w-3" />
-                      ) : null}
-                      {formatCurrency(cycle.profitPerAnimal)}
-                    </div>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger className="cursor-help">
+                          <div className={cn(
+                            'flex items-center justify-end gap-1',
+                            cycle.profitPerAnimal > 0 && 'text-green-600',
+                            cycle.profitPerAnimal < 0 && 'text-red-600'
+                          )}>
+                            {cycle.profitPerAnimal > 0 ? (
+                              <TrendingUp className="h-3 w-3" />
+                            ) : cycle.profitPerAnimal < 0 ? (
+                              <TrendingDown className="h-3 w-3" />
+                            ) : null}
+                            {formatCurrency(cycle.profitPerAnimal)}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <div className="text-xs space-y-1">
+                            <div className="flex justify-between gap-4">
+                              <span>Verkauf - Kauf:</span>
+                              <span>{formatCurrency(cycle.priceDifference)}</span>
+                            </div>
+                            <div className="flex justify-between gap-4 text-red-500">
+                              <span>- Futterkosten:</span>
+                              <span>{formatCurrency(cycle.feedCostPerAnimal)}</span>
+                            </div>
+                            {cycle.additionalCostsPerAnimal > 0 && (
+                              <div className="flex justify-between gap-4 text-red-500">
+                                <span>- Sonstige Kosten:</span>
+                                <span>{formatCurrency(cycle.additionalCostsPerAnimal)}</span>
+                              </div>
+                            )}
+                            {cycle.additionalIncomePerAnimal > 0 && (
+                              <div className="flex justify-between gap-4 text-green-500">
+                                <span>+ Prämien/Zuschüsse:</span>
+                                <span>{formatCurrency(cycle.additionalIncomePerAnimal)}</span>
+                              </div>
+                            )}
+                            <div className="border-t pt-1 flex justify-between gap-4 font-semibold">
+                              <span>= Gewinn/Tier:</span>
+                              <span>{formatCurrency(cycle.profitPerAnimal)}</span>
+                            </div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </TableCell>
                 </TableRow>
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={14} className="text-center text-muted-foreground">
+                <TableCell colSpan={15} className="text-center text-muted-foreground">
                   Keine Durchgänge vorhanden
                 </TableCell>
               </TableRow>
