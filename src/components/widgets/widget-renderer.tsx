@@ -171,14 +171,6 @@ export function WidgetRenderer({
         />
       )
 
-    case 'pivot':
-      // TODO: Implement pivot widget
-      return (
-        <div className="p-4 text-muted-foreground">
-          Pivot Widget (coming soon)
-        </div>
-      )
-
     case 'gauge':
       return (
         <GaugeWidget

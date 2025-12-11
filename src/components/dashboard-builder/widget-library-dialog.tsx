@@ -30,7 +30,6 @@ const WIDGET_ICONS = {
   chart: BarChart3,
   table: Table2,
   pie: PieChart,
-  pivot: Table2,
   gauge: Activity,
   activity: Activity,
   heatmap: Grid3x3,
