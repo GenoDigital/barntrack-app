@@ -33,7 +33,6 @@ import {
   X
 } from 'lucide-react'
 import { Tables } from '@/lib/database.types'
-import * as XLSX from 'xlsx'
 import { loadConsumptionWithCosts } from '@/lib/utils/feed-calculations'
 import { PlanUpgradeBanner } from '@/components/subscription/plan-upgrade-banner'
 import { useSubscription } from '@/lib/hooks/use-subscription'
@@ -599,12 +598,15 @@ function EvaluationContent() {
     }).format(value / 100)
   }
 
-  const exportAreaMetricsToExcel = () => {
+  const exportAreaMetricsToExcel = async () => {
     if (!areaMetrics || areaMetrics.length === 0) return
-    
+
+    // Dynamic import XLSX only when export is triggered (saves ~400KB from initial bundle)
+    const XLSX = await import('xlsx')
+
     const selectedDurchgangData = durchgaenge.find(d => d.id === selectedDurchgang)
     const durchgangName = selectedDurchgangData?.durchgang_name || 'Durchgang'
-    
+
     // Prepare data for the main sheet (summary)
     const summaryData = areaMetrics.map(area => ({
       'Bucht/Bereich': area.areaName,
@@ -617,7 +619,7 @@ function EvaluationContent() {
       'Kosten/kg Zunahme (€)': parseFloat(area.feedCostPerKg.toFixed(2)),
       'Anteil (%)': parseFloat(area.percentageOfTotal.toFixed(1))
     }))
-    
+
     // Add totals row
     summaryData.push({
       'Bucht/Bereich': 'GESAMT',
@@ -630,10 +632,10 @@ function EvaluationContent() {
       'Kosten/kg Zunahme (€)': 0,
       'Anteil (%)': 100
     })
-    
+
     // Prepare detailed data for each area
     const detailedSheets: { [key: string]: any[] } = {}
-    
+
     areaMetrics.forEach(area => {
       const feedTypesData = Object.values(area.feedTypes).map(feed => ({
         'Futtermittel': feed.name,
@@ -641,7 +643,7 @@ function EvaluationContent() {
         'Kosten (€)': parseFloat(feed.cost.toFixed(2)),
         'Preis/kg (€)': feed.quantity > 0 ? parseFloat((feed.cost / feed.quantity).toFixed(3)) : 0
       }))
-      
+
       // Add summary for this area
       feedTypesData.push({
         'Futtermittel': 'GESAMT',
@@ -649,17 +651,17 @@ function EvaluationContent() {
         'Kosten (€)': parseFloat(area.totalFeedCost.toFixed(2)),
         'Preis/kg (€)': area.totalFeedQuantity > 0 ? parseFloat((area.totalFeedCost / area.totalFeedQuantity).toFixed(3)) : 0
       })
-      
+
       detailedSheets[area.areaName] = feedTypesData
     })
-    
+
     // Create workbook
     const wb = XLSX.utils.book_new()
-    
+
     // Add summary sheet
     const summaryWs = XLSX.utils.json_to_sheet(summaryData)
     XLSX.utils.book_append_sheet(wb, summaryWs, 'Übersicht')
-    
+
     // Add detailed sheets for each area
     Object.entries(detailedSheets).forEach(([areaName, data]) => {
       const ws = XLSX.utils.json_to_sheet(data)
@@ -667,11 +669,11 @@ function EvaluationContent() {
       const sheetName = areaName.substring(0, 31)
       XLSX.utils.book_append_sheet(wb, ws, sheetName)
     })
-    
+
     // Generate filename with date
     const date = new Date().toISOString().split('T')[0]
     const filename = `Buchtauswertung_${durchgangName}_${date}.xlsx`
-    
+
     // Write the file
     XLSX.writeFile(wb, filename)
   }

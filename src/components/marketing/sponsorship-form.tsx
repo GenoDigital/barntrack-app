@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Loader2, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { useGoogleReCaptcha } from 'react-google-recaptcha-v3'
+import { useGoogleReCaptcha, GoogleReCaptchaProvider } from 'react-google-recaptcha-v3'
 
 const sponsorshipFormSchema = z.object({
   company_name: z.string().min(2, 'Firmenname muss mindestens 2 Zeichen lang sein'),
@@ -24,7 +24,8 @@ const sponsorshipFormSchema = z.object({
 
 type SponsorshipFormData = z.infer<typeof sponsorshipFormSchema>
 
-export function SponsorshipForm() {
+// Inner form component that uses the reCAPTCHA hook
+function SponsorshipFormInner() {
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const supabase = createClient()
@@ -203,5 +204,24 @@ export function SponsorshipForm() {
         </form>
       </CardContent>
     </Card>
+  )
+}
+
+// Exported component with reCAPTCHA provider wrapper
+export function SponsorshipForm() {
+  const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+
+  if (!recaptchaSiteKey) {
+    console.warn('NEXT_PUBLIC_RECAPTCHA_SITE_KEY is not set. reCAPTCHA will not work.')
+    return <SponsorshipFormInner />
+  }
+
+  return (
+    <GoogleReCaptchaProvider
+      reCaptchaKey={recaptchaSiteKey}
+      scriptProps={{ async: true, defer: true, appendTo: 'head' }}
+    >
+      <SponsorshipFormInner />
+    </GoogleReCaptchaProvider>
   )
 }

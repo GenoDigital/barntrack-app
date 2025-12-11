@@ -91,34 +91,17 @@ export async function proxy(request: NextRequest) {
     // Check database directly for user type, farm membership, and subscription status
     // This is more reliable than JWT claims which can become stale
     // Note: Supabase RLS policies ensure users can only see their own data
+    // Performance: Queries run in parallel to minimize latency
 
-    // Get user type to differentiate owners from members
-    const { data: userData } = await supabase
-      .from('users')
-      .select('user_type')
-      .eq('id', user.id)
-      .maybeSingle()
+    const [userResult, farmResult, subResult] = await Promise.all([
+      supabase.from('users').select('user_type').eq('id', user.id).maybeSingle(),
+      supabase.from('farm_members').select('farm_id').eq('user_id', user.id).limit(1).maybeSingle(),
+      supabase.from('subscriptions').select('status').eq('user_id', user.id).in('status', ['active', 'trialing']).limit(1).maybeSingle()
+    ])
 
-    const userType = userData?.user_type || 'member'
-
-    const { data: farmData } = await supabase
-      .from('farm_members')
-      .select('farm_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .maybeSingle()
-
-    const hasFarm = !!farmData
-
-    const { data: subData } = await supabase
-      .from('subscriptions')
-      .select('status')
-      .eq('user_id', user.id)
-      .in('status', ['active', 'trialing'])
-      .limit(1)
-      .maybeSingle()
-
-    const hasSubscription = !!subData
+    const userType = userResult.data?.user_type || 'member'
+    const hasFarm = !!farmResult.data
+    const hasSubscription = !!subResult.data
 
     // Redirect logic based on user type, subscription, and farm status
     if (userType === 'owner') {
@@ -164,55 +147,28 @@ export async function proxy(request: NextRequest) {
 
   // Redirect authenticated users away from auth pages
   if (user && (request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/signup')) {
-    // Check database directly for user type, farm membership, and subscription status
-    // This is more reliable than JWT claims which can become stale
-    // Note: Supabase RLS policies ensure users can only see their own data
+    // Run queries in parallel to minimize latency
+    const [userResult, farmResult, subResult] = await Promise.all([
+      supabase.from('users').select('user_type').eq('id', user.id).maybeSingle(),
+      supabase.from('farm_members').select('farm_id').eq('user_id', user.id).limit(1).maybeSingle(),
+      supabase.from('subscriptions').select('status').eq('user_id', user.id).in('status', ['active', 'trialing']).limit(1).maybeSingle()
+    ])
 
-    // Get user type
-    const { data: userData } = await supabase
-      .from('users')
-      .select('user_type')
-      .eq('id', user.id)
-      .maybeSingle()
-
-    const userType = userData?.user_type || 'member'
-
-    const { data: farmData } = await supabase
-      .from('farm_members')
-      .select('farm_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .maybeSingle()
-
-    const hasFarm = !!farmData
-
-    const { data: subData } = await supabase
-      .from('subscriptions')
-      .select('status')
-      .eq('user_id', user.id)
-      .in('status', ['active', 'trialing'])
-      .limit(1)
-      .maybeSingle()
-
-    const hasSubscription = !!subData
+    const userType = userResult.data?.user_type || 'member'
+    const hasFarm = !!farmResult.data
+    const hasSubscription = !!subResult.data
 
     // Redirect based on user type and status
     if (hasFarm) {
-      // User has farm access - redirect to dashboard
       return NextResponse.redirect(new URL('/dashboard', request.url))
     } else if (userType === 'owner') {
-      // Farm owner without farm
       if (!hasSubscription) {
-        // No subscription - go to onboarding
         return NextResponse.redirect(new URL('/onboarding', request.url))
       } else {
-        // Has subscription but no farm - go to setup
         return NextResponse.redirect(new URL('/dashboard/setup', request.url))
       }
     } else {
       // Member without farm - allow them to stay on login/signup page
-      // They need to check their invitation email and click the link to /accept-invitation
-      // Don't redirect to avoid infinite loop
       return response
     }
   }

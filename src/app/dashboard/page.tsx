@@ -53,12 +53,15 @@ export default function DashboardPage() {
       setIsLoading(true)
 
       try {
-        // Fetch all dashboards for this farm
-        const dashboards = await getDashboards(currentFarmId)
+        // Fetch dashboards and default in parallel to minimize latency
+        const [dashboards, defaultDashboard] = await Promise.all([
+          getDashboards(currentFarmId),
+          getDefaultDashboard(currentFarmId)
+        ])
         setDashboards(dashboards)
 
-        // Find or create default dashboard
-        let dashboard = await getDefaultDashboard(currentFarmId)
+        // Use default dashboard or first available
+        let dashboard = defaultDashboard
 
         if (!dashboard && dashboards.length > 0) {
           dashboard = dashboards[0]

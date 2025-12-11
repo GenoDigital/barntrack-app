@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Loader2, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { useGoogleReCaptcha } from 'react-google-recaptcha-v3'
+import { useGoogleReCaptcha, GoogleReCaptchaProvider } from 'react-google-recaptcha-v3'
 
 const demoFormSchema = z.object({
   name: z.string().min(2, 'Name muss mindestens 2 Zeichen lang sein'),
@@ -26,7 +26,8 @@ const demoFormSchema = z.object({
 
 type DemoFormData = z.infer<typeof demoFormSchema>
 
-export function DemoForm() {
+// Inner form component that uses the reCAPTCHA hook
+function DemoFormInner() {
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const supabase = createClient()
@@ -229,5 +230,24 @@ export function DemoForm() {
         </form>
       </CardContent>
     </Card>
+  )
+}
+
+// Exported component with reCAPTCHA provider wrapper
+export function DemoForm() {
+  const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+
+  if (!recaptchaSiteKey) {
+    console.warn('NEXT_PUBLIC_RECAPTCHA_SITE_KEY is not set. reCAPTCHA will not work.')
+    return <DemoFormInner />
+  }
+
+  return (
+    <GoogleReCaptchaProvider
+      reCaptchaKey={recaptchaSiteKey}
+      scriptProps={{ async: true, defer: true, appendTo: 'head' }}
+    >
+      <DemoFormInner />
+    </GoogleReCaptchaProvider>
   )
 }

@@ -12,7 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Loader2, CheckCircle2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { useGoogleReCaptcha } from 'react-google-recaptcha-v3'
+import { useGoogleReCaptcha, GoogleReCaptchaProvider } from 'react-google-recaptcha-v3'
 
 const contactFormSchema = z.object({
   name: z.string().min(2, 'Name muss mindestens 2 Zeichen lang sein'),
@@ -23,7 +23,8 @@ const contactFormSchema = z.object({
 
 type ContactFormData = z.infer<typeof contactFormSchema>
 
-export function ContactForm() {
+// Inner form component that uses the reCAPTCHA hook
+function ContactFormInner() {
   const [loading, setLoading] = useState(false)
   const [submitted, setSubmitted] = useState(false)
   const supabase = createClient()
@@ -174,5 +175,25 @@ export function ContactForm() {
         </form>
       </CardContent>
     </Card>
+  )
+}
+
+// Exported component with reCAPTCHA provider wrapper
+// This ensures Google reCAPTCHA script only loads when this form is rendered
+export function ContactForm() {
+  const recaptchaSiteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+
+  if (!recaptchaSiteKey) {
+    console.warn('NEXT_PUBLIC_RECAPTCHA_SITE_KEY is not set. reCAPTCHA will not work.')
+    return <ContactFormInner />
+  }
+
+  return (
+    <GoogleReCaptchaProvider
+      reCaptchaKey={recaptchaSiteKey}
+      scriptProps={{ async: true, defer: true, appendTo: 'head' }}
+    >
+      <ContactFormInner />
+    </GoogleReCaptchaProvider>
   )
 }

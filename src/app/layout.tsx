@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from '@/components/ui/sonner'
-import { RecaptchaProvider } from '@/components/providers/recaptcha-provider'
 import { CookieConsentProvider } from '@/contexts/cookie-consent-context'
 import { CookieBanner } from '@/components/cookie-banner'
 import { CookieSettingsDialog } from '@/components/cookie-settings-dialog'
@@ -77,12 +76,10 @@ export default function RootLayout({
       >
         <AuthErrorBoundary>
           <CookieConsentProvider>
-            <RecaptchaProvider>
-              {children}
-              <Toaster />
-              <CookieBanner />
-              <CookieSettingsDialog />
-            </RecaptchaProvider>
+            {children}
+            <Toaster />
+            <CookieBanner />
+            <CookieSettingsDialog />
           </CookieConsentProvider>
         </AuthErrorBoundary>
       </body>

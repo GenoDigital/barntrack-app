@@ -10,7 +10,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useFarmStore } from '@/lib/stores/farm-store'
 import { BarChart, DollarSign, Package, Filter, Download, Star, Lock } from 'lucide-react'
 import { Tables } from '@/lib/database.types'
-import * as XLSX from 'xlsx'
 import { loadConsumptionWithCosts } from '@/lib/utils/feed-calculations'
 import { PlanUpgradeBanner } from '@/components/subscription/plan-upgrade-banner'
 import { useSubscription } from '@/lib/hooks/use-subscription'
@@ -219,7 +218,10 @@ function ReportsContent() {
   }
 
 
-  const exportPivotToExcel = () => {
+  const exportPivotToExcel = async () => {
+    // Dynamic import XLSX only when export is triggered (saves ~400KB from initial bundle)
+    const XLSX = await import('xlsx')
+
     const wb = XLSX.utils.book_new()
 
     // Pivot Table Sheet
