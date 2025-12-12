@@ -101,7 +101,7 @@ function ReportsContent() {
       const configs = await getSavedPivotConfigs(currentFarmId)
       setSavedPivotConfigs(configs)
     } catch (error) {
-      console.error('Error loading saved pivot configs:', error)
+      console.error('Pivot configs loading failed:', error instanceof Error ? error.message : 'Unknown error')
     }
   }, [currentFarmId])
 
@@ -122,7 +122,6 @@ function ReportsContent() {
 
   // Load reports data
   const loadReports = useCallback(async () => {
-    console.log('Loading reports with dates:', { startDate, endDate })
     setLoading(true)
 
     try {
@@ -139,8 +138,6 @@ function ReportsContent() {
       )
 
       if (data) {
-        console.log('Received data records:', data.length)
-        console.log('Sample data item:', JSON.stringify(data[0], null, 2))
         // Transform data to match ConsumptionDataRow interface
         const transformedData: ConsumptionDataRow[] = data.map((item: any) => ({
           date: item.date,
@@ -157,11 +154,10 @@ function ReportsContent() {
           price_per_unit: item.price_per_unit || (item.total_cost && item.quantity ? item.total_cost / parseFloat(item.quantity) : 0)
         }))
 
-        console.log('Transformed data records:', transformedData.length)
         setRawConsumptionData(transformedData)
       }
     } catch (error) {
-      console.error('Error loading reports:', error)
+      console.error('Reports loading failed:', error instanceof Error ? error.message : 'Unknown error')
     } finally {
       setLoading(false)
     }
@@ -180,7 +176,6 @@ function ReportsContent() {
   }, [currentFarmId, loadSavedConfigs])
 
   useEffect(() => {
-    console.log('useEffect triggered with:', { currentFarmId, startDate, endDate })
     if (currentFarmId && startDate && endDate) {
       loadReports()
     }
@@ -373,10 +368,7 @@ function ReportsContent() {
                 id="startDate"
                 type="date"
                 value={startDate}
-                onChange={(e) => {
-                  console.log('Start date changed to:', e.target.value)
-                  setStartDate(e.target.value)
-                }}
+                onChange={(e) => setStartDate(e.target.value)}
                 className="w-[150px]"
               />
             </div>
@@ -386,10 +378,7 @@ function ReportsContent() {
                 id="endDate"
                 type="date"
                 value={endDate}
-                onChange={(e) => {
-                  console.log('End date changed to:', e.target.value)
-                  setEndDate(e.target.value)
-                }}
+                onChange={(e) => setEndDate(e.target.value)}
                 className="w-[150px]"
               />
             </div>

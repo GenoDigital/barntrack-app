@@ -149,13 +149,6 @@ export async function POST(request: Request) {
       'Ein barntrack-Nutzer'
 
     // Send invitation email
-    console.log('Sending invitation email with params:', {
-      to: email,
-      recipientName: recipientName || email.split('@')[0],
-      inviterName,
-      farmName: farm.name,
-      invitationToken: token,
-    })
 
     const emailResult = await sendInvitationEmail({
       to: email,
@@ -168,10 +161,7 @@ export async function POST(request: Request) {
     if (!emailResult.success) {
       // Log email error but don't fail the request
       // The invitation is created, user can manually share the link
-      console.error('Failed to send invitation email:', emailResult.error)
-      console.error('Email result:', JSON.stringify(emailResult))
-    } else {
-      console.log('Email sent successfully:', emailResult)
+      console.error('Failed to send invitation email to:', email)
     }
 
     return NextResponse.json({

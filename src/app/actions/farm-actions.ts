@@ -48,7 +48,7 @@ export async function createFarmAction(params: CreateFarmParams): Promise<Create
       .rpc('can_user_create_farm', { user_uuid: user.id })
 
     if (limitError) {
-      console.error('Error checking farm creation limits:', limitError)
+      console.error('Farm creation limit check failed:', limitError.message)
       return {
         success: false,
         error: 'Fehler beim Überprüfen der Berechtigung'
@@ -73,7 +73,7 @@ export async function createFarmAction(params: CreateFarmParams): Promise<Create
       })
 
     if (userError) {
-      console.error('Error creating user record:', userError)
+      console.error('User record creation failed:', userError.message)
       return {
         success: false,
         error: 'Fehler beim Erstellen des Benutzerdatensatzes'
@@ -90,7 +90,7 @@ export async function createFarmAction(params: CreateFarmParams): Promise<Create
       })
 
     if (farmError) {
-      console.error('Farm creation error:', farmError)
+      console.error('Farm creation failed:', farmError.message)
       return {
         success: false,
         error: farmError.message || 'Fehler beim Erstellen des Stalls'
@@ -116,7 +116,7 @@ export async function createFarmAction(params: CreateFarmParams): Promise<Create
       farm: farmData
     }
   } catch (error) {
-    console.error('Unexpected error creating farm:', error)
+    console.error('Unexpected farm creation error:', error instanceof Error ? error.message : 'Unknown error')
     return {
       success: false,
       error: 'Ein unerwarteter Fehler ist aufgetreten'
@@ -138,13 +138,13 @@ export async function canUserCreateFarmAction(): Promise<boolean> {
       .rpc('can_user_create_farm', { user_uuid: user.id })
 
     if (error) {
-      console.error('Error checking farm creation ability:', error)
+      console.error('Farm creation ability check failed:', error.message)
       return false
     }
 
     return data === true
   } catch (error) {
-    console.error('Error in canUserCreateFarmAction:', error)
+    console.error('canUserCreateFarmAction error:', error instanceof Error ? error.message : 'Unknown error')
     return false
   }
 }

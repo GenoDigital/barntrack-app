@@ -123,9 +123,7 @@ export default function SuppliersPage() {
           farm_id: currentFarmId!,
           created_by: user.id,
         }
-        
-        console.log('Creating supplier with data:', newSupplierData)
-        
+
         const { error } = await supabase
           .from('suppliers')
           .insert(newSupplierData)
@@ -142,9 +140,8 @@ export default function SuppliersPage() {
       setEditingSupplier(null)
       loadSuppliers()
     } catch (error) {
-      console.error('Error saving supplier:', error)
-      console.error('Error details:', JSON.stringify(error, null, 2))
-      
+      console.error('Supplier save failed:', error instanceof Error ? error.message : 'Unknown error')
+
       if (error && typeof error === 'object' && 'message' in error) {
         toast.error(`Fehler: ${error.message}`)
       } else {
